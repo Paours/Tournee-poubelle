@@ -12,7 +12,7 @@
     
     /* Navigation par Onglets */
     .tabs { display: flex; background: #333; color: white; }
-    .tab-btn { flex: 1; padding: 15px; border: none; background: none; color: white; font-weight: bold; font-size: 0.9rem; cursor: pointer; }
+    .tab-btn { flex: 1; padding: 15px 5px; border: none; background: none; color: white; font-weight: bold; font-size: 0.85rem; cursor: pointer; }
     .tab-btn.active { background: #007bff; border-bottom: 4px solid #fff; }
     
     .tab-content { display: none; flex: 1; flex-direction: column; height: calc(100% - 50px); }
@@ -20,88 +20,93 @@
 
     /* Carte et Commandes */
     #map { flex: 1; width: 100%; }
-    .controls { padding: 12px; background: white; display: flex; gap: 8px; box-shadow: 0 -2px 10px rgba(0,0,0,0.1); }
+    .controls { padding: 10px; background: white; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 -2px 10px rgba(0,0,0,0.1); }
+    .btn-row { display: flex; gap: 8px; }
+    
     button.action-btn { flex: 1; padding: 12px 5px; font-size: 0.9rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; }
     .btn-start { background-color: #28a745; }
     .btn-stop { background-color: #dc3545; }
     .btn-save { background-color: #17a2b8; }
+    .btn-bin { background-color: #fd7e14; padding: 15px; font-size: 1.1rem; } /* Bouton Poubelle bien visible */
+
+    button:disabled { background-color: #cccccc !important; cursor: not-allowed; }
 
     /* Listes d'onglets */
     .list-container { padding: 15px; overflow-y: auto; }
     .card { background: white; padding: 15px; border-radius: 8px; margin-bottom: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
     .card h3 { margin: 0 0 8px 0; font-size: 1.1rem; }
     .card p { margin: 0 0 10px 0; color: #666; font-size: 0.85rem; }
-    .card-btns { display: flex; gap: 8px; }
+    .card-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+    
     .btn-sm { padding: 8px 12px; border: none; border-radius: 4px; font-weight: bold; color: white; cursor: pointer; font-size: 0.8rem; }
     .bg-blue { background: #007bff; }
     .bg-green { background: #28a745; }
     .bg-orange { background: #fd7e14; }
     .bg-red { background: #dc3545; }
+    .bg-purple { background: #6f42c1; }
+
+    /* Icone Numérotée personnalisée pour la carte */
+    .bin-icon {
+      background-color: #fd7e14;
+      color: white;
+      border: 2px solid white;
+      border-radius: 50%;
+      font-weight: bold;
+      text-align: center;
+      line-height: 24px;
+      font-size: 12px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.4);
+    }
   </style>
 </head>
 <body>
 
   <!-- Menu Onglets -->
   <div class="tabs">
-    <button class="tab-btn active" onclick="switchTab('tab-carte')"> Carte / Enregistrement</button>
-    <button class="tab-btn" onclick="switchTab('tab-tournees')"> Modelés Tournées</button>
-    <button class="tab-btn" onclick="switchTab('tab-historique')"> Historique</button>
+    <button class="tab-btn active" onclick="switchTab('tab-carte')"> Carte / Suivi</button>
+    <button class="tab-btn" onclick="switchTab('tab-historique')"> Historique & Arrêts</button>
   </div>
 
   <!-- ONGLET 1 : CARTE ET ENREGISTREMENT -->
   <div id="tab-carte" class="tab-content active">
     <div id="map"></div>
     <div class="controls">
-      <button id="startBtn" class="action-btn btn-start" onclick="startTracking()">Démarrer</button>
-      <button id="stopBtn" class="action-btn btn-stop" onclick="stopTracking()" disabled>Arrêter</button>
-      <button id="saveBtn" class="action-btn btn-save" onclick="saveCurrentRun()" disabled>Sauvegarder</button>
-    </div>
-  </div>
-
-  <!-- ONGLET 2 : TOURNÉES PRÉDÉFINIES -->
-  <div id="tab-tournees" class="tab-content">
-    <div class="list-container">
-      <h2>Tournées Modèles</h2>
-      <div class="card">
-        <h3>Secteur Centre-Ville</h3>
-        <p>Tournée du mardi / vendredi — Approx 12 km</p>
-        <div class="card-btns">
-          <button class="btn-sm bg-blue" onclick="loadRouteOnMap('Centre-Ville')">Charger sur la carte</button>
-          <button class="btn-sm bg-green" onclick="launchWaze(48.8566, 2.3522)">Lancer Waze</button>
-        </div>
-      </div>
-      <div class="card">
-        <h3>Secteur ZI / Zone Commerciale</h3>
-        <p>Tournée du jeudi — Approx 24 km</p>
-        <div class="card-btns">
-          <button class="btn-sm bg-blue" onclick="loadRouteOnMap('ZI')">Charger sur la carte</button>
-          <button class="btn-sm bg-green" onclick="launchWaze(48.86, 2.35)">Lancer Waze</button>
-        </div>
+      <!-- Bouton d'action rapide pour ajouter une poubelle -->
+      <button id="addBinBtn" class="action-btn btn-bin" onclick="addBinStop()" disabled>🗑️ + Enregistrer Poubelle / Arrêt</button>
+      
+      <div class="btn-row">
+        <button id="startBtn" class="action-btn btn-start" onclick="startTracking()">Démarrer</button>
+        <button id="stopBtn" class="action-btn btn-stop" onclick="stopTracking()" disabled>Arrêter</button>
+        <button id="saveBtn" class="action-btn btn-save" onclick="saveCurrentRun()" disabled>Sauvegarder</button>
       </div>
     </div>
   </div>
 
-  <!-- ONGLET 3 : HISTORIQUE ET ÉDITION -->
+  <!-- ONGLET 2 : HISTORIQUE ET LISTE DES ARRÊTS -->
   <div id="tab-historique" class="tab-content">
     <div class="list-container" id="historyList">
-      <h2>Trajets Enregistrés</h2>
+      <h2>Trajets & Arrêts Enregistrés</h2>
       <!-- Injecté dynamiquement par JS -->
     </div>
   </div>
 
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   
   <script>
-    let map, polyline, marker;
+    let map, polyline, currentPositionMarker;
     let watchId = null;
     let currentPath = [];
+    let currentBins = []; // Liste des poubelles enregistrées
+    let binMarkersOnMap = [];
+    let lastKnownPos = null;
+    
     let savedRuns = JSON.parse(localStorage.getItem('my_runs') || '[]');
 
     // Initialisation de la Carte
     map = L.map('map').setView([46.603354, 1.888334], 6);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
     polyline = L.polyline([], { color: '#0066ff', weight: 6 }).addTo(map);
-    marker = L.marker([0, 0]);
 
     function switchTab(tabId) {
       document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -115,29 +120,82 @@
 
     function startTracking() {
       if (!navigator.geolocation) return alert("GPS non supporté");
+      
       currentPath = [];
+      currentBins = [];
+      clearMapMarkers();
       polyline.setLatLngs([]);
       
       document.getElementById('startBtn').disabled = true;
       document.getElementById('stopBtn').disabled = false;
+      document.getElementById('addBinBtn').disabled = false;
       document.getElementById('saveBtn').disabled = true;
 
       watchId = navigator.geolocation.watchPosition(
         (pos) => {
           const lat = pos.coords.latitude;
           const lon = pos.coords.longitude;
-          const latLng = [lat, lon];
+          lastKnownPos = { lat, lon, time: new Date().toISOString() };
           
-          currentPath.push({ lat, lon, time: new Date().toISOString() });
-          polyline.addLatLng(latLng);
-          marker.setLatLng(latLng);
+          currentPath.push(lastKnownPos);
+          polyline.addLatLng([lat, lon]);
 
-          if (!map.hasLayer(marker)) marker.addTo(map);
-          map.panTo(latLng);
+          // Mise à jour du marqueur du camion
+          if (!currentPositionMarker) {
+            currentPositionMarker = L.marker([lat, lon]).addTo(map);
+          } else {
+            currentPositionMarker.setLatLng([lat, lon]);
+          }
+          map.panTo([lat, lon]);
         },
         (err) => console.error(err),
         { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
       );
+    }
+
+    // Ajouter une poubelle numérotée à la position actuelle
+    function addBinStop() {
+      if (!lastKnownPos) {
+        alert("En attente du signal GPS...");
+        return;
+      }
+
+      const binNumber = currentBins.length + 1;
+      const note = prompt(`Ajouter Arrêt N°${binNumber} (ex: 12 Rue des Fleurs / Bac jaune) :`, `Arrêt N°${binNumber}`);
+      
+      if (note === null) return; // Annulation
+
+      const binPoint = {
+        number: binNumber,
+        name: note || `Arrêt N°${binNumber}`,
+        lat: lastKnownPos.lat,
+        lon: lastKnownPos.lon,
+        time: new Date().toLocaleTimeString()
+      };
+
+      currentBins.push(binPoint);
+      addBinMarkerToMap(binPoint);
+    }
+
+    // Afficher une icône de poubelle numérotée sur la carte
+    function addBinMarkerToMap(bin) {
+      const icon = L.divIcon({
+        className: 'bin-icon',
+        html: bin.number,
+        iconSize: [26, 26],
+        iconAnchor: [13, 13]
+      });
+
+      const marker = L.marker([bin.lat, bin.lon], { icon: icon })
+        .addTo(map)
+        .bindPopup(`<b>${bin.name}</b><br>Heure : ${bin.time}`);
+
+      binMarkersOnMap.push(marker);
+    }
+
+    function clearMapMarkers() {
+      binMarkersOnMap.forEach(m => map.removeLayer(m));
+      binMarkersOnMap = [];
     }
 
     function stopTracking() {
@@ -146,6 +204,7 @@
         watchId = null;
         document.getElementById('startBtn').disabled = false;
         document.getElementById('stopBtn').disabled = true;
+        document.getElementById('addBinBtn').disabled = true;
         document.getElementById('saveBtn').disabled = currentPath.length === 0;
       }
     }
@@ -158,33 +217,52 @@
         id: Date.now(),
         name: name,
         date: new Date().toLocaleString(),
-        points: currentPath
+        points: currentPath,
+        bins: currentBins // Sauvegarde des poubelles avec le trajet
       };
 
       savedRuns.push(newRun);
       localStorage.setItem('my_runs', JSON.stringify(savedRuns));
-      alert("Trajet sauvegardé dans l'onglet Historique !");
+      alert(`Tournée sauvegardée avec ${currentBins.length} poubelle(s)/arrêt(s) enregistré(s) !`);
       document.getElementById('saveBtn').disabled = true;
     }
 
     function renderHistory() {
       const container = document.getElementById('historyList');
-      container.innerHTML = '<h2>Trajets Enregistrés</h2>';
+      container.innerHTML = '<h2>Trajets & Arrêts Enregistrés</h2>';
 
       if (savedRuns.length === 0) {
         container.innerHTML += '<p>Aucun trajet enregistré pour le moment.</p>';
         return;
       }
 
-      savedRuns.forEach((run, index) => {
+      savedRuns.forEach((run) => {
         const firstPt = run.points[0] || { lat: 0, lon: 0 };
         const card = document.createElement('div');
         card.className = 'card';
+        
+        let binsListHTML = '';
+        if (run.bins && run.bins.length > 0) {
+          binsListHTML = '<ol style="padding-left: 20px; margin: 8px 0; font-size: 0.85rem;">';
+          run.bins.forEach(b => {
+            binsListHTML += `<li><b>${b.name}</b> (${b.time}) - <a href="https://waze.com/ul?ll=${b.lat},${b.lon}&navigate=yes" target="_blank" style="color:#007bff;">Waze</a></li>`;
+          });
+          binsListHTML += '</ol>';
+        } else {
+          binsListHTML = '<p><i>Aucun arrêt spécifique enregistré.</i></p>';
+        }
+
         card.innerHTML = `
           <h3>${run.name}</h3>
-          <p>Date: ${run.date} | ${run.points.length} points capturés</p>
-          <div class="card-btns">
-            <button class="btn-sm bg-blue" onclick="editRunOnMap(${run.id})">Voir / Modifier</button>
+          <p><b>Date:</b> ${run.date} | <b>Arrêts Poubelles:</b> ${run.bins ? run.bins.length : 0}</p>
+          
+          <details>
+            <summary style="cursor:pointer; color:#007bff; font-weight:bold; margin-bottom:10px;">📋 Afficher l'ordre des arrêts Poubelles</summary>
+            ${binsListHTML}
+          </details>
+
+          <div class="card-btns" style="margin-top: 10px;">
+            <button class="btn-sm bg-blue" onclick="loadRunOnMap(${run.id})">Voir Tracé & Poubelles</button>
             <button class="btn-sm bg-green" onclick="launchWaze(${firstPt.lat}, ${firstPt.lon})">Waze (Départ)</button>
             <button class="btn-sm bg-red" onclick="deleteRun(${run.id})">Supprimer</button>
           </div>
@@ -193,23 +271,34 @@
       });
     }
 
+    function loadRunOnMap(id) {
+      const run = savedRuns.find(r => r.id === id);
+      if (!run) return;
+
+      switchTab('tab-carte');
+      clearMapMarkers();
+
+      // Charger le tracé
+      polyline.setLatLngs(run.points.map(p => [p.lat, p.lon]));
+      
+      // Afficher les poubelles enregistrées sur la carte
+      if (run.bins) {
+        run.bins.forEach(bin => addBinMarkerToMap(bin));
+      }
+
+      if (run.points.length > 0) {
+        map.fitBounds(polyline.getBounds());
+      }
+
+      alert(`Tournée "${run.name}" chargée avec ses ${run.bins ? run.bins.length : 0} arrêt(s).`);
+    }
+
     function deleteRun(id) {
-      if(confirm("Supprimer ce trajet ?")) {
+      if(confirm("Supprimer définitivement ce trajet et ses arrêts ?")) {
         savedRuns = savedRuns.filter(r => r.id !== id);
         localStorage.setItem('my_runs', JSON.stringify(savedRuns));
         renderHistory();
       }
-    }
-
-    function editRunOnMap(id) {
-      const run = savedRuns.find(r => r.id === id);
-      if(!run) return;
-
-      switchTab('tab-carte');
-      polyline.setLatLngs(run.points.map(p => [p.lat, p.lon]));
-      map.fitBounds(polyline.getBounds());
-      
-      alert(`Tracé "${run.name}" chargé sur la carte.`);
     }
 
     function launchWaze(lat, lon) {
