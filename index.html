@@ -113,6 +113,20 @@
       if(tabId === 'tab-historique') renderHistory();
     }
 
+    function updatePosition(lat, lon) {
+      lastKnownPos = { lat, lon, time: new Date().toISOString() };
+      currentPath.push(lastKnownPos);
+      polyline.addLatLng([lat, lon]);
+      decorator.setPaths(polyline);
+
+      if (!currentPositionMarker) {
+        currentPositionMarker = L.marker([lat, lon]).addTo(map);
+      } else {
+        currentPositionMarker.setLatLng([lat, lon]);
+      }
+      map.panTo([lat, lon]);
+    }
+
     function startTracking() {
       if (!navigator.geolocation) {
         alert("Géolocalisation non supportée par votre navigateur.");
@@ -130,39 +144,38 @@
       polyline.setLatLngs([]);
       decorator.setPaths(polyline);
 
+      // Force une première acquisition rapide
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          updatePosition(pos.coords.latitude, pos.coords.longitude);
+        },
+        (err) => console.log("Initial position fetch error:", err),
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+      );
+
+      // Suivi en continu
       watchId = navigator.geolocation.watchPosition(
         (pos) => {
-          const lat = pos.coords.latitude;
-          const lon = pos.coords.longitude;
-          lastKnownPos = { lat, lon, time: new Date().toISOString() };
-          
-          currentPath.push(lastKnownPos);
-          polyline.addLatLng([lat, lon]);
-          decorator.setPaths(polyline);
-
-          if (!currentPositionMarker) {
-            currentPositionMarker = L.marker([lat, lon]).addTo(map);
-          } else {
-            currentPositionMarker.setLatLng([lat, lon]);
-          }
-          map.panTo([lat, lon]);
+          updatePosition(pos.coords.latitude, pos.coords.longitude);
         },
         (err) => {
-          let msg = "Erreur GPS : ";
-          if (err.code === 1) msg += "Autorisation refusée. Vérifiez les permissions de votre navigateur.";
-          else if (err.code === 2) msg += "Position indisponible. Activez le GPS de votre téléphone.";
-          else if (err.code === 3) msg += "Délai d'attente dépassé.";
-          alert(msg);
-          stopTracking();
+          console.error("Watch position error:", err);
         },
-        { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+        { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
       );
     }
 
     function addBinStop() {
-      if (!lastKnownPos) {
-        alert("En attente du signal GPS...");
-        return;
+      let targetLat, targetLon;
+
+      if (lastKnownPos) {
+        targetLat = lastKnownPos.lat;
+        targetLon = lastKnownPos.lon;
+      } else {
+        // Position de secours : centre de la carte
+        const center = map.getCenter();
+        targetLat = center.lat;
+        targetLon = center.lng;
       }
 
       const binNumber = currentBins.length + 1;
@@ -172,8 +185,8 @@
       const binPoint = {
         number: binNumber,
         name: note || ("Arrêt N°" + binNumber),
-        lat: lastKnownPos.lat,
-        lon: lastKnownPos.lon,
+        lat: targetLat,
+        lon: targetLon,
         time: new Date().toLocaleTimeString()
       };
 
@@ -209,7 +222,7 @@
       document.getElementById('startBtn').disabled = false;
       document.getElementById('stopBtn').disabled = true;
       document.getElementById('addBinBtn').disabled = true;
-      document.getElementById('saveBtn').disabled = currentPath.length === 0;
+      document.getElementById('saveBtn').disabled = currentPath.length === 0 && currentBins.length === 0;
     }
 
     function saveCurrentRun() {
@@ -240,7 +253,7 @@
       }
 
       savedRuns.forEach((run) => {
-        const firstPt = run.points[0] || { lat: 0, lon: 0 };
+        const firstPt = run.points[0] || (run.bins[0] ? { lat: run.bins[0].lat, lon: run.bins[0].lon } : { lat: 0, lon: 0 });
         const card = document.createElement('div');
         card.className = 'card';
         
