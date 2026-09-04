@@ -128,8 +128,7 @@
       document.getElementById('saveBtn').disabled = true;
       
       var addBtn = document.getElementById('addBinBtn');
-      addBtn.disabled = true;
-      addBtn.innerText = "⏳ Recherche du signal GPS...";
+      addBtn.disabled = false;
 
       currentPath = [];
       currentBins = [];
@@ -138,38 +137,52 @@
       polyline.setLatLngs([]);
       if (decorator) decorator.setPaths(polyline);
 
-      watchId = navigator.geolocation.watchPosition(
+      // On tente d'abord d'obtenir une position rapidement
+      navigator.geolocation.getCurrentPosition(
         function(pos) {
-          var lat = pos.coords.latitude;
-          var lon = pos.coords.longitude;
-          lastKnownPos = { lat: lat, lon: lon, time: new Date().toISOString() };
-          
-          currentPath.push(lastKnownPos);
-          polyline.addLatLng([lat, lon]);
-          if (decorator) decorator.setPaths(polyline);
-
-          // Activation immédiate du bouton dès que le GPS répond
-          addBtn.disabled = false;
-          addBtn.innerText = "🗑️ + Enregistrer Poubelle / Arrêt";
-
-          if (!currentPositionMarker) {
-            currentPositionMarker = L.marker([lat, lon]).addTo(map);
-            map.setView([lat, lon], 17);
-          } else {
-            currentPositionMarker.setLatLng([lat, lon]);
-            map.panTo([lat, lon]);
-          }
+          updatePosition(pos);
         },
         function(err) {
-          addBtn.innerText = "⚠️ Problème de signal GPS";
-          stopTracking();
+          console.log("Premier fix lent, attente du watchPosition...");
         },
-        { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
+        { enableHighAccuracy: false, timeout: 5000, maximumAge: 10000 }
+      );
+
+      // Suivi continu
+      watchId = navigator.geolocation.watchPosition(
+        function(pos) {
+          updatePosition(pos);
+        },
+        function(err) {
+          console.warn("Erreur GPS Watch: " + err.message);
+        },
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
       );
     }
 
+    function updatePosition(pos) {
+      var lat = pos.coords.latitude;
+      var lon = pos.coords.longitude;
+      lastKnownPos = { lat: lat, lon: lon, time: new Date().toISOString() };
+      
+      currentPath.push(lastKnownPos);
+      polyline.addLatLng([lat, lon]);
+      if (decorator) decorator.setPaths(polyline);
+
+      if (!currentPositionMarker) {
+        currentPositionMarker = L.marker([lat, lon]).addTo(map);
+        map.setView([lat, lon], 17);
+      } else {
+        currentPositionMarker.setLatLng([lat, lon]);
+        map.panTo([lat, lon]);
+      }
+    }
+
     function addBinStop() {
-      if (!lastKnownPos) return;
+      if (!lastKnownPos) {
+        alert("Le GPS cherche encore votre position exacte. Avancez de quelques mètres ou attendez 5 secondes.");
+        return;
+      }
 
       var binNumber = currentBins.length + 1;
       var note = prompt("Nom de l'arrêt / Poubelle :", "Arrêt N°" + binNumber);
@@ -217,10 +230,7 @@
         watchId = null;
       }
       
-      var addBtn = document.getElementById('addBinBtn');
-      addBtn.disabled = true;
-      addBtn.innerText = "🗑️ + Enregistrer Poubelle / Arrêt";
-
+      document.getElementById('addBinBtn').disabled = true;
       document.getElementById('startBtn').disabled = false;
       document.getElementById('stopBtn').disabled = true;
       document.getElementById('saveBtn').disabled = (currentPath.length === 0 && currentBins.length === 0);
@@ -263,7 +273,7 @@
           binsListHTML = '<ol style="padding-left: 20px; margin: 8px 0; font-size: 0.85rem;">';
           run.bins.forEach(function(b) {
             var wazeUrl = "https://waze.com/ul?ll=" + b.lat + "," + b.lon + "&navigate=yes";
-            var gmapsUrl = "https://www.google.com/maps/search/?api=1&query=" + b.lat + "," + b.lon;
+            var gmapsUrl = "https://www.google.com/maps/dir/?api=1&destination=" + b.lat + "," + b.lon;
             binsListHTML += '<li><b>' + b.name + '</b> (' + b.time + ') - ' +
               '<a href="' + wazeUrl + '" target="_blank" style="color:#28a745; font-weight:bold;">Waze</a> | ' +
               '<a href="' + gmapsUrl + '" target="_blank" style="color:#4285F4; font-weight:bold;">Google Maps</a></li>';
@@ -275,7 +285,7 @@
 
         var binCount = run.bins ? run.bins.length : 0;
         var startWaze = "https://waze.com/ul?ll=" + firstPt.lat + "," + firstPt.lon + "&navigate=yes";
-        var startGmaps = "https://www.google.com/maps/search/?api=1&query=" + firstPt.lat + "," + firstPt.lon;
+        var startGmaps = "https://www.google.com/maps/dir/?api=1&destination=" + firstPt.lat + "," + firstPt.lon;
 
         card.innerHTML = '<h3>' + run.name + '</h3>' +
           '<p><b>Date:</b> ' + run.date + ' | <b>Arrêts Poubelles:</b> ' + binCount + '</p>' +
