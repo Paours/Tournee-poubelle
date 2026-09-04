@@ -114,10 +114,19 @@
     }
 
     function startTracking() {
-      if (!navigator.geolocation) return alert("GPS non supporté");
+      if (!navigator.geolocation) {
+        alert("GPS non supporté par votre appareil.");
+        return;
+      }
       
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+      }
+
       currentPath = [];
       currentBins = [];
+      lastKnownPos = null;
       clearMapMarkers();
       polyline.setLatLngs([]);
       decorator.setPaths(polyline);
@@ -139,19 +148,25 @@
 
           if (!currentPositionMarker) {
             currentPositionMarker = L.marker([lat, lon]).addTo(map);
-            map.setView([lat, lon], 17); // Zoome directement sur vous dès qu'il vous trouve
+            map.setView([lat, lon], 17);
           } else {
             currentPositionMarker.setLatLng([lat, lon]);
             map.panTo([lat, lon]);
           }
         },
-        (err) => console.error(err),
+        (err) => {
+          alert("Erreur GPS : " + err.message);
+          stopTracking();
+        },
         { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
       );
     }
 
     function addBinStop() {
-      if (!lastKnownPos) return alert("Fix GPS en cours... Réessayez dans un instant.");
+      if (!lastKnownPos) {
+        alert("Signal GPS en cours d'acquisition... Réessaie dans quelques secondes.");
+        return;
+      }
 
       const binNumber = currentBins.length + 1;
       const note = prompt("Ajouter Arrêt N°" + binNumber + " :", "Arrêt N°" + binNumber);
@@ -187,17 +202,21 @@
     function clearMapMarkers() {
       binMarkersOnMap.forEach(m => map.removeLayer(m));
       binMarkersOnMap = [];
+      if (currentPositionMarker) {
+        map.removeLayer(currentPositionMarker);
+        currentPositionMarker = null;
+      }
     }
 
     function stopTracking() {
       if (watchId !== null) {
         navigator.geolocation.clearWatch(watchId);
         watchId = null;
-        document.getElementById('startBtn').disabled = false;
-        document.getElementById('stopBtn').disabled = true;
-        document.getElementById('addBinBtn').disabled = true;
-        document.getElementById('saveBtn').disabled = currentPath.length === 0;
       }
+      document.getElementById('startBtn').disabled = false;
+      document.getElementById('stopBtn').disabled = true;
+      document.getElementById('addBinBtn').disabled = true;
+      document.getElementById('saveBtn').disabled = (currentPath.length === 0 && currentBins.length === 0);
     }
 
     function saveCurrentRun() {
@@ -214,7 +233,7 @@
 
       savedRuns.push(newRun);
       localStorage.setItem('my_runs', JSON.stringify(savedRuns));
-      alert("Tournée sauvegardée avec " + currentBins.length + " arrêt(s) !");
+      alert("Tournée sauvegardée !");
       document.getElementById('saveBtn').disabled = true;
     }
 
