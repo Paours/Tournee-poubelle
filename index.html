@@ -113,70 +113,45 @@
       if(tabId === 'tab-historique') renderHistory();
     }
 
-    function updatePosition(lat, lon) {
-      lastKnownPos = { lat, lon, time: new Date().toISOString() };
-      currentPath.push(lastKnownPos);
-      polyline.addLatLng([lat, lon]);
-      decorator.setPaths(polyline);
-
-      if (!currentPositionMarker) {
-        currentPositionMarker = L.marker([lat, lon]).addTo(map);
-      } else {
-        currentPositionMarker.setLatLng([lat, lon]);
-      }
-      map.panTo([lat, lon]);
-    }
-
     function startTracking() {
-      if (!navigator.geolocation) {
-        alert("Géolocalisation non supportée par votre navigateur.");
-        return;
-      }
-
-      document.getElementById('startBtn').disabled = true;
-      document.getElementById('stopBtn').disabled = false;
-      document.getElementById('addBinBtn').disabled = false;
-      document.getElementById('saveBtn').disabled = true;
-
+      if (!navigator.geolocation) return alert("GPS non supporté");
+      
       currentPath = [];
       currentBins = [];
       clearMapMarkers();
       polyline.setLatLngs([]);
       decorator.setPaths(polyline);
+      
+      document.getElementById('startBtn').disabled = true;
+      document.getElementById('stopBtn').disabled = false;
+      document.getElementById('addBinBtn').disabled = false;
+      document.getElementById('saveBtn').disabled = true;
 
-      // Force une première acquisition rapide
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          updatePosition(pos.coords.latitude, pos.coords.longitude);
-        },
-        (err) => console.log("Initial position fetch error:", err),
-        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
-      );
-
-      // Suivi en continu
       watchId = navigator.geolocation.watchPosition(
         (pos) => {
-          updatePosition(pos.coords.latitude, pos.coords.longitude);
+          const lat = pos.coords.latitude;
+          const lon = pos.coords.longitude;
+          lastKnownPos = { lat, lon, time: new Date().toISOString() };
+          
+          currentPath.push(lastKnownPos);
+          polyline.addLatLng([lat, lon]);
+          decorator.setPaths(polyline);
+
+          if (!currentPositionMarker) {
+            currentPositionMarker = L.marker([lat, lon]).addTo(map);
+            map.setView([lat, lon], 17); // Zoome directement sur vous dès qu'il vous trouve
+          } else {
+            currentPositionMarker.setLatLng([lat, lon]);
+            map.panTo([lat, lon]);
+          }
         },
-        (err) => {
-          console.error("Watch position error:", err);
-        },
-        { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
+        (err) => console.error(err),
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
       );
     }
 
     function addBinStop() {
-      let targetLat, targetLon;
-
-      if (lastKnownPos) {
-        targetLat = lastKnownPos.lat;
-        targetLon = lastKnownPos.lon;
-      } else {
-        // Position de secours : centre de la carte
-        const center = map.getCenter();
-        targetLat = center.lat;
-        targetLon = center.lng;
-      }
+      if (!lastKnownPos) return alert("Fix GPS en cours... Réessayez dans un instant.");
 
       const binNumber = currentBins.length + 1;
       const note = prompt("Ajouter Arrêt N°" + binNumber + " :", "Arrêt N°" + binNumber);
@@ -185,8 +160,8 @@
       const binPoint = {
         number: binNumber,
         name: note || ("Arrêt N°" + binNumber),
-        lat: targetLat,
-        lon: targetLon,
+        lat: lastKnownPos.lat,
+        lon: lastKnownPos.lon,
         time: new Date().toLocaleTimeString()
       };
 
@@ -218,11 +193,11 @@
       if (watchId !== null) {
         navigator.geolocation.clearWatch(watchId);
         watchId = null;
+        document.getElementById('startBtn').disabled = false;
+        document.getElementById('stopBtn').disabled = true;
+        document.getElementById('addBinBtn').disabled = true;
+        document.getElementById('saveBtn').disabled = currentPath.length === 0;
       }
-      document.getElementById('startBtn').disabled = false;
-      document.getElementById('stopBtn').disabled = true;
-      document.getElementById('addBinBtn').disabled = true;
-      document.getElementById('saveBtn').disabled = currentPath.length === 0 && currentBins.length === 0;
     }
 
     function saveCurrentRun() {
