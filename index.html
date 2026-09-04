@@ -115,7 +115,7 @@
 
     function startTracking() {
       if (!navigator.geolocation) {
-        alert("GPS non supporté par votre appareil.");
+        alert("GPS non supporté par ce navigateur.");
         return;
       }
       
@@ -155,7 +155,7 @@
           }
         },
         (err) => {
-          alert("Erreur GPS : " + err.message);
+          alert("Erreur GPS (" + err.code + ") : " + err.message);
           stopTracking();
         },
         { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
@@ -164,7 +164,7 @@
 
     function addBinStop() {
       if (!lastKnownPos) {
-        alert("Signal GPS en cours d'acquisition... Réessaie dans quelques secondes.");
+        alert("Recherche du signal GPS... Réessaie dans un instant.");
         return;
       }
 
@@ -256,7 +256,7 @@
           binsListHTML = '<ol style="padding-left: 20px; margin: 8px 0; font-size: 0.85rem;">';
           run.bins.forEach(b => {
             const wazeUrl = "https://waze.com/ul?ll=" + b.lat + "," + b.lon + "&navigate=yes";
-            const gmapsUrl = "https://www.google.com/maps/search/?api=1&query=" + b.lat + "," + b.lon;
+            const gmapsUrl = "https://www.google.com/maps/dir/?api=1&destination=" + b.lat + "," + b.lon;
             binsListHTML += '<li><b>' + b.name + '</b> (' + b.time + ') - ' +
               '<a href="' + wazeUrl + '" target="_blank" style="color:#28a745; font-weight:bold;">Waze</a> | ' +
               '<a href="' + gmapsUrl + '" target="_blank" style="color:#4285F4; font-weight:bold;">Google Maps</a></li>';
@@ -268,7 +268,7 @@
 
         const binCount = run.bins ? run.bins.length : 0;
         const startWaze = "https://waze.com/ul?ll=" + firstPt.lat + "," + firstPt.lon + "&navigate=yes";
-        const startGmaps = "https://www.google.com/maps/search/?api=1&query=" + firstPt.lat + "," + firstPt.lon;
+        const startGmaps = "https://www.google.com/maps/dir/?api=1&destination=" + firstPt.lat + "," + firstPt.lon;
 
         card.innerHTML = '<h3>' + run.name + '</h3>' +
           '<p><b>Date:</b> ' + run.date + ' | <b>Arrêts Poubelles:</b> ' + binCount + '</p>' +
