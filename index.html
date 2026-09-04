@@ -119,14 +119,17 @@
 
     function startTracking() {
       if (!navigator.geolocation) {
-        alert("Votre téléphone ou navigateur ne supporte pas le GPS.");
+        alert("Votre téléphone ne supporte pas le GPS.");
         return;
       }
 
       document.getElementById('startBtn').disabled = true;
       document.getElementById('stopBtn').disabled = false;
-      document.getElementById('addBinBtn').disabled = false;
       document.getElementById('saveBtn').disabled = true;
+      
+      var addBtn = document.getElementById('addBinBtn');
+      addBtn.disabled = true;
+      addBtn.innerText = "⏳ Recherche du signal GPS...";
 
       currentPath = [];
       currentBins = [];
@@ -145,6 +148,10 @@
           polyline.addLatLng([lat, lon]);
           if (decorator) decorator.setPaths(polyline);
 
+          // Activation immédiate du bouton dès que le GPS répond
+          addBtn.disabled = false;
+          addBtn.innerText = "🗑️ + Enregistrer Poubelle / Arrêt";
+
           if (!currentPositionMarker) {
             currentPositionMarker = L.marker([lat, lon]).addTo(map);
             map.setView([lat, lon], 17);
@@ -154,7 +161,7 @@
           }
         },
         function(err) {
-          alert("Erreur GPS (" + err.code + ") : " + err.message);
+          addBtn.innerText = "⚠️ Problème de signal GPS";
           stopTracking();
         },
         { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
@@ -162,13 +169,10 @@
     }
 
     function addBinStop() {
-      if (!lastKnownPos) {
-        alert("En attente de la position GPS... Réessayez dans quelques secondes.");
-        return;
-      }
+      if (!lastKnownPos) return;
 
       var binNumber = currentBins.length + 1;
-      var note = prompt("Ajouter Arrêt N°" + binNumber + " :", "Arrêt N°" + binNumber);
+      var note = prompt("Nom de l'arrêt / Poubelle :", "Arrêt N°" + binNumber);
       if (note === null) return;
 
       var binPoint = {
@@ -212,9 +216,13 @@
         navigator.geolocation.clearWatch(watchId);
         watchId = null;
       }
+      
+      var addBtn = document.getElementById('addBinBtn');
+      addBtn.disabled = true;
+      addBtn.innerText = "🗑️ + Enregistrer Poubelle / Arrêt";
+
       document.getElementById('startBtn').disabled = false;
       document.getElementById('stopBtn').disabled = true;
-      document.getElementById('addBinBtn').disabled = true;
       document.getElementById('saveBtn').disabled = (currentPath.length === 0 && currentBins.length === 0);
     }
 
