@@ -21,7 +21,7 @@
     .controls { padding: 10px; background: white; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 -2px 10px rgba(0,0,0,0.1); }
     .btn-row { display: flex; gap: 8px; }
     
-    button.action-btn, a.btn-link { flex: 1; padding: 12px 5px; font-size: 0.85rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-align: center; text-decoration: none; display: inline-block; }
+    button.action-btn { flex: 1; padding: 12px 5px; font-size: 0.85rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-align: center; }
     .btn-start { background-color: #28a745; }
     .btn-stop { background-color: #dc3545; }
     .btn-save { background-color: #17a2b8; }
@@ -84,67 +84,66 @@
   <script src="https://unpkg.com/leaflet-polylinedecorator@1.6.0/leaflet.polylineDecorator.js"></script>
   
   <script>
-    let map, polyline, decorator, currentPositionMarker;
-    let watchId = null;
-    let currentPath = [];
-    let currentBins = [];
-    let binMarkersOnMap = [];
-    let lastKnownPos = null;
-    
-    let savedRuns = JSON.parse(localStorage.getItem('my_runs') || '[]');
-
-    map = L.map('map').setView([46.603354, 1.888334], 6);
+    var map = L.map('map').setView([46.603354, 1.888334], 6);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
-    polyline = L.polyline([], { color: '#0066ff', weight: 6 }).addTo(map);
-
-    decorator = L.polylineDecorator(polyline, {
+    var polyline = L.polyline([], { color: '#0066ff', weight: 6 }).addTo(map);
+    
+    var decorator = L.polylineDecorator(polyline, {
       patterns: [
         { offset: 25, repeat: 50, symbol: L.Symbol.arrowHead({ pixelSize: 10, pathOptions: { fillOpacity: 1, color: '#ffffff', stroke: false } }) }
       ]
     }).addTo(map);
 
+    var currentPositionMarker = null;
+    var watchId = null;
+    var currentPath = [];
+    var currentBins = [];
+    var binMarkersOnMap = [];
+    var lastKnownPos = null;
+    
+    var savedRuns = JSON.parse(localStorage.getItem('my_runs') || '[]');
+
     function switchTab(tabId) {
-      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-      document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(function(el) { el.classList.remove('active'); });
+      document.querySelectorAll('.tab-btn').forEach(function(el) { el.classList.remove('active'); });
       document.getElementById(tabId).classList.add('active');
       
-      if(tabId === 'tab-carte') setTimeout(() => map.invalidateSize(), 200);
-      if(tabId === 'tab-historique') renderHistory();
+      if(tabId === 'tab-carte') {
+        setTimeout(function() { map.invalidateSize(); }, 200);
+      }
+      if(tabId === 'tab-historique') {
+        renderHistory();
+      }
     }
 
     function startTracking() {
       if (!navigator.geolocation) {
-        alert("GPS non supporté par ce navigateur.");
+        alert("Votre téléphone ou navigateur ne supporte pas le GPS.");
         return;
       }
-      
-      if (watchId !== null) {
-        navigator.geolocation.clearWatch(watchId);
-        watchId = null;
-      }
+
+      document.getElementById('startBtn').disabled = true;
+      document.getElementById('stopBtn').disabled = false;
+      document.getElementById('addBinBtn').disabled = false;
+      document.getElementById('saveBtn').disabled = true;
 
       currentPath = [];
       currentBins = [];
       lastKnownPos = null;
       clearMapMarkers();
       polyline.setLatLngs([]);
-      decorator.setPaths(polyline);
-      
-      document.getElementById('startBtn').disabled = true;
-      document.getElementById('stopBtn').disabled = false;
-      document.getElementById('addBinBtn').disabled = false;
-      document.getElementById('saveBtn').disabled = true;
+      if (decorator) decorator.setPaths(polyline);
 
       watchId = navigator.geolocation.watchPosition(
-        (pos) => {
-          const lat = pos.coords.latitude;
-          const lon = pos.coords.longitude;
-          lastKnownPos = { lat, lon, time: new Date().toISOString() };
+        function(pos) {
+          var lat = pos.coords.latitude;
+          var lon = pos.coords.longitude;
+          lastKnownPos = { lat: lat, lon: lon, time: new Date().toISOString() };
           
           currentPath.push(lastKnownPos);
           polyline.addLatLng([lat, lon]);
-          decorator.setPaths(polyline);
+          if (decorator) decorator.setPaths(polyline);
 
           if (!currentPositionMarker) {
             currentPositionMarker = L.marker([lat, lon]).addTo(map);
@@ -154,25 +153,25 @@
             map.panTo([lat, lon]);
           }
         },
-        (err) => {
+        function(err) {
           alert("Erreur GPS (" + err.code + ") : " + err.message);
           stopTracking();
         },
-        { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
       );
     }
 
     function addBinStop() {
       if (!lastKnownPos) {
-        alert("Recherche du signal GPS... Réessaie dans un instant.");
+        alert("En attente de la position GPS... Réessayez dans quelques secondes.");
         return;
       }
 
-      const binNumber = currentBins.length + 1;
-      const note = prompt("Ajouter Arrêt N°" + binNumber + " :", "Arrêt N°" + binNumber);
+      var binNumber = currentBins.length + 1;
+      var note = prompt("Ajouter Arrêt N°" + binNumber + " :", "Arrêt N°" + binNumber);
       if (note === null) return;
 
-      const binPoint = {
+      var binPoint = {
         number: binNumber,
         name: note || ("Arrêt N°" + binNumber),
         lat: lastKnownPos.lat,
@@ -185,14 +184,14 @@
     }
 
     function addBinMarkerToMap(bin) {
-      const icon = L.divIcon({
+      var icon = L.divIcon({
         className: 'bin-icon',
         html: bin.number,
         iconSize: [26, 26],
         iconAnchor: [13, 13]
       });
 
-      const marker = L.marker([bin.lat, bin.lon], { icon: icon })
+      var marker = L.marker([bin.lat, bin.lon], { icon: icon })
         .addTo(map)
         .bindPopup("<b>" + bin.name + "</b><br>Heure : " + bin.time);
 
@@ -200,7 +199,7 @@
     }
 
     function clearMapMarkers() {
-      binMarkersOnMap.forEach(m => map.removeLayer(m));
+      binMarkersOnMap.forEach(function(m) { map.removeLayer(m); });
       binMarkersOnMap = [];
       if (currentPositionMarker) {
         map.removeLayer(currentPositionMarker);
@@ -220,10 +219,10 @@
     }
 
     function saveCurrentRun() {
-      const name = prompt("Nom de la tournée :", "Tournée du " + new Date().toLocaleDateString());
+      var name = prompt("Nom de la tournée :", "Tournée du " + new Date().toLocaleDateString());
       if (!name) return;
 
-      const newRun = {
+      var newRun = {
         id: Date.now(),
         name: name,
         date: new Date().toLocaleString(),
@@ -238,7 +237,7 @@
     }
 
     function renderHistory() {
-      const container = document.getElementById('historyList');
+      var container = document.getElementById('historyList');
       container.innerHTML = '<h2>Trajets & Arrêts Enregistrés</h2>';
 
       if (savedRuns.length === 0) {
@@ -246,17 +245,17 @@
         return;
       }
 
-      savedRuns.forEach((run) => {
-        const firstPt = run.points[0] || (run.bins[0] ? { lat: run.bins[0].lat, lon: run.bins[0].lon } : { lat: 0, lon: 0 });
-        const card = document.createElement('div');
+      savedRuns.forEach(function(run) {
+        var firstPt = run.points[0] || (run.bins[0] ? { lat: run.bins[0].lat, lon: run.bins[0].lon } : { lat: 0, lon: 0 });
+        var card = document.createElement('div');
         card.className = 'card';
         
-        let binsListHTML = '';
+        var binsListHTML = '';
         if (run.bins && run.bins.length > 0) {
           binsListHTML = '<ol style="padding-left: 20px; margin: 8px 0; font-size: 0.85rem;">';
-          run.bins.forEach(b => {
-            const wazeUrl = "https://waze.com/ul?ll=" + b.lat + "," + b.lon + "&navigate=yes";
-            const gmapsUrl = "https://www.google.com/maps/dir/?api=1&destination=" + b.lat + "," + b.lon;
+          run.bins.forEach(function(b) {
+            var wazeUrl = "https://waze.com/ul?ll=" + b.lat + "," + b.lon + "&navigate=yes";
+            var gmapsUrl = "https://www.google.com/maps/search/?api=1&query=" + b.lat + "," + b.lon;
             binsListHTML += '<li><b>' + b.name + '</b> (' + b.time + ') - ' +
               '<a href="' + wazeUrl + '" target="_blank" style="color:#28a745; font-weight:bold;">Waze</a> | ' +
               '<a href="' + gmapsUrl + '" target="_blank" style="color:#4285F4; font-weight:bold;">Google Maps</a></li>';
@@ -266,9 +265,9 @@
           binsListHTML = '<p><i>Aucun arrêt spécifique enregistré.</i></p>';
         }
 
-        const binCount = run.bins ? run.bins.length : 0;
-        const startWaze = "https://waze.com/ul?ll=" + firstPt.lat + "," + firstPt.lon + "&navigate=yes";
-        const startGmaps = "https://www.google.com/maps/dir/?api=1&destination=" + firstPt.lat + "," + firstPt.lon;
+        var binCount = run.bins ? run.bins.length : 0;
+        var startWaze = "https://waze.com/ul?ll=" + firstPt.lat + "," + firstPt.lon + "&navigate=yes";
+        var startGmaps = "https://www.google.com/maps/search/?api=1&query=" + firstPt.lat + "," + firstPt.lon;
 
         card.innerHTML = '<h3>' + run.name + '</h3>' +
           '<p><b>Date:</b> ' + run.date + ' | <b>Arrêts Poubelles:</b> ' + binCount + '</p>' +
@@ -285,17 +284,17 @@
     }
 
     function loadRunOnMap(id) {
-      const run = savedRuns.find(r => r.id === id);
+      var run = savedRuns.find(function(r) { return r.id === id; });
       if (!run) return;
 
       switchTab('tab-carte');
       clearMapMarkers();
 
-      polyline.setLatLngs(run.points.map(p => [p.lat, p.lon]));
-      decorator.setPaths(polyline);
+      polyline.setLatLngs(run.points.map(function(p) { return [p.lat, p.lon]; }));
+      if (decorator) decorator.setPaths(polyline);
       
       if (run.bins) {
-        run.bins.forEach(bin => addBinMarkerToMap(bin));
+        run.bins.forEach(function(bin) { addBinMarkerToMap(bin); });
       }
 
       if (run.points.length > 0) {
@@ -305,7 +304,7 @@
 
     function deleteRun(id) {
       if(confirm("Supprimer ce trajet ?")) {
-        savedRuns = savedRuns.filter(r => r.id !== id);
+        savedRuns = savedRuns.filter(function(r) { return r.id !== id; });
         localStorage.setItem('my_runs', JSON.stringify(savedRuns));
         renderHistory();
       }
