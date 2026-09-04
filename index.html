@@ -1,322 +1,90 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Gestion Tournées Éboueur</title>
+function startTracking() {
+  if (!navigator.geolocation) {
+    alert("Votre navigateur ne supporte pas la géolocalisation.");
+    return;
+  }
+
+  document.getElementById('startBtn').disabled = true;
+  document.getElementById('stopBtn').disabled = false;
+  document.getElementById('addBinBtn').disabled = false;
+  document.getElementById('saveBtn').disabled = true;
+
+  currentPath = [];
+  currentBins = [];
+  lastKnownPos = null;
+  clearMapMarkers();
+  polyline.setLatLngs([]);
+  if (decorator) decorator.setPaths(polyline);
+
+  // Tentative de récupération immédiate
+  navigator.geolocation.getCurrentPosition(
+    function(pos) {
+      updatePosition(pos);
+    },
+    function(err) {
+      console.warn("Erreur GPS initiale :", err);
+      if (err.code === 1) {
+        alert("Accès GPS refusé. Veuillez autoriser la géolocalisation dans votre navigateur.");
+      }
+    },
+    { enableHighAccuracy: false, timeout: 10000, maximumAge: 0 }
+  );
+
+  // Suivi en continu
+  watchId = navigator.geolocation.watchPosition(
+    function(pos) {
+      updatePosition(pos);
+    },
+    function(err) {
+      console.warn("Erreur suivi GPS :", err);
+    },
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
+  );
+}
+
+function updatePosition(pos) {
+  var lat = pos.coords.latitude;
+  var lon = pos.coords.longitude;
+  lastKnownPos = { lat: lat, lon: lon, time: new Date().toISOString() };
   
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  
-  <style>
-    body, html { margin: 0; padding: 0; height: 100%; width: 100%; font-family: sans-serif; display: flex; flex-direction: column; background: #f4f4f9; }
-    
-    .tabs { display: flex; background: #333; color: white; }
-    .tab-btn { flex: 1; padding: 15px 5px; border: none; background: none; color: white; font-weight: bold; font-size: 0.85rem; cursor: pointer; }
-    .tab-btn.active { background: #007bff; border-bottom: 4px solid #fff; }
-    
-    .tab-content { display: none; flex: 1; flex-direction: column; height: calc(100% - 50px); }
-    .tab-content.active { display: flex; }
+  currentPath.push(lastKnownPos);
+  polyline.addLatLng([lat, lon]);
+  if (decorator) decorator.setPaths(polyline);
 
-    #map { flex: 1; width: 100%; }
-    .controls { padding: 10px; background: white; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 -2px 10px rgba(0,0,0,0.1); }
-    .btn-row { display: flex; gap: 8px; }
-    
-    button.action-btn { flex: 1; padding: 12px 5px; font-size: 0.85rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; text-align: center; }
-    .btn-start { background-color: #28a745; }
-    .btn-stop { background-color: #dc3545; }
-    .btn-save { background-color: #17a2b8; }
-    .btn-bin { background-color: #fd7e14; padding: 15px; font-size: 1.1rem; }
+  if (!currentPositionMarker) {
+    currentPositionMarker = L.marker([lat, lon]).addTo(map);
+    map.setView([lat, lon], 17);
+  } else {
+    currentPositionMarker.setLatLng([lat, lon]);
+    map.panTo([lat, lon]);
+  }
+}
 
-    button:disabled { background-color: #cccccc !important; cursor: not-allowed; }
+function addBinStop() {
+  // Si le GPS ne répond toujours pas, on prend le centre actuel de la carte
+  var targetLat, targetLon;
 
-    .list-container { padding: 15px; overflow-y: auto; }
-    .card { background: white; padding: 15px; border-radius: 8px; margin-bottom: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
-    .card h3 { margin: 0 0 8px 0; font-size: 1.1rem; }
-    .card p { margin: 0 0 10px 0; color: #666; font-size: 0.85rem; }
-    .card-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
-    
-    .btn-sm { padding: 8px 10px; border: none; border-radius: 4px; font-weight: bold; color: white !important; cursor: pointer; font-size: 0.78rem; text-decoration: none; display: inline-block; }
-    .bg-blue { background: #007bff; }
-    .bg-green { background: #28a745; }
-    .bg-gmaps { background: #4285F4; }
-    .bg-red { background: #dc3545; }
+  if (lastKnownPos) {
+    targetLat = lastKnownPos.lat;
+    targetLon = lastKnownPos.lon;
+  } else {
+    var center = map.getCenter();
+    targetLat = center.lat;
+    targetLon = center.lng;
+  }
 
-    .bin-icon {
-      background-color: #fd7e14;
-      color: white;
-      border: 2px solid white;
-      border-radius: 50%;
-      font-weight: bold;
-      text-align: center;
-      line-height: 24px;
-      font-size: 12px;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.4);
-    }
-  </style>
-</head>
-<body>
+  var binNumber = currentBins.length + 1;
+  var note = prompt("Nom de l'arrêt / Poubelle :", "Arrêt N°" + binNumber);
+  if (note === null) return;
 
-  <div class="tabs">
-    <button class="tab-btn active" onclick="switchTab('tab-carte')">Carte / Suivi</button>
-    <button class="tab-btn" onclick="switchTab('tab-historique')">Historique & Arrêts</button>
-  </div>
+  var binPoint = {
+    number: binNumber,
+    name: note || ("Arrêt N°" + binNumber),
+    lat: targetLat,
+    lon: targetLon,
+    time: new Date().toLocaleTimeString()
+  };
 
-  <div id="tab-carte" class="tab-content active">
-    <div id="map"></div>
-    <div class="controls">
-      <button id="addBinBtn" class="action-btn btn-bin" onclick="addBinStop()" disabled>🗑️ + Enregistrer Poubelle / Arrêt</button>
-      
-      <div class="btn-row">
-        <button id="startBtn" class="action-btn btn-start" onclick="startTracking()">Démarrer</button>
-        <button id="stopBtn" class="action-btn btn-stop" onclick="stopTracking()" disabled>Arrêter</button>
-        <button id="saveBtn" class="action-btn btn-save" onclick="saveCurrentRun()" disabled>Sauvegarder</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="tab-historique" class="tab-content">
-    <div class="list-container" id="historyList">
-      <h2>Trajets & Arrêts Enregistrés</h2>
-    </div>
-  </div>
-
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://unpkg.com/leaflet-polylinedecorator@1.6.0/leaflet.polylineDecorator.js"></script>
-  
-  <script>
-    var map = L.map('map').setView([46.603354, 1.888334], 6);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
-
-    var polyline = L.polyline([], { color: '#0066ff', weight: 6 }).addTo(map);
-    
-    var decorator = L.polylineDecorator(polyline, {
-      patterns: [
-        { offset: 25, repeat: 50, symbol: L.Symbol.arrowHead({ pixelSize: 10, pathOptions: { fillOpacity: 1, color: '#ffffff', stroke: false } }) }
-      ]
-    }).addTo(map);
-
-    var currentPositionMarker = null;
-    var watchId = null;
-    var currentPath = [];
-    var currentBins = [];
-    var binMarkersOnMap = [];
-    var lastKnownPos = null;
-    
-    var savedRuns = JSON.parse(localStorage.getItem('my_runs') || '[]');
-
-    function switchTab(tabId) {
-      document.querySelectorAll('.tab-content').forEach(function(el) { el.classList.remove('active'); });
-      document.querySelectorAll('.tab-btn').forEach(function(el) { el.classList.remove('active'); });
-      document.getElementById(tabId).classList.add('active');
-      
-      if(tabId === 'tab-carte') {
-        setTimeout(function() { map.invalidateSize(); }, 200);
-      }
-      if(tabId === 'tab-historique') {
-        renderHistory();
-      }
-    }
-
-    function startTracking() {
-      if (!navigator.geolocation) {
-        alert("Votre téléphone ne supporte pas le GPS.");
-        return;
-      }
-
-      document.getElementById('startBtn').disabled = true;
-      document.getElementById('stopBtn').disabled = false;
-      document.getElementById('addBinBtn').disabled = false;
-      document.getElementById('saveBtn').disabled = true;
-
-      currentPath = [];
-      currentBins = [];
-      lastKnownPos = null;
-      clearMapMarkers();
-      polyline.setLatLngs([]);
-      if (decorator) decorator.setPaths(polyline);
-
-      // Force une première position rapide via réseau/4G
-      navigator.geolocation.getCurrentPosition(
-        function(pos) { updatePosition(pos); },
-        function(err) { console.log("Lancement du suivi continu..."); },
-        { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
-      );
-
-      // Suivi permanent avec GPS
-      watchId = navigator.geolocation.watchPosition(
-        function(pos) { updatePosition(pos); },
-        function(err) { console.warn("Erreur GPS : " + err.message); },
-        { enableHighAccuracy: true, maximumAge: 3000, timeout: 20000 }
-      );
-    }
-
-    function updatePosition(pos) {
-      var lat = pos.coords.latitude;
-      var lon = pos.coords.longitude;
-      lastKnownPos = { lat: lat, lon: lon, time: new Date().toISOString() };
-      
-      currentPath.push(lastKnownPos);
-      polyline.addLatLng([lat, lon]);
-      if (decorator) decorator.setPaths(polyline);
-
-      if (!currentPositionMarker) {
-        currentPositionMarker = L.marker([lat, lon]).addTo(map);
-        map.setView([lat, lon], 17);
-      } else {
-        currentPositionMarker.setLatLng([lat, lon]);
-        map.panTo([lat, lon]);
-      }
-    }
-
-    function addBinStop() {
-      if (!lastKnownPos) {
-        alert("Position GPS non disponible. Cliquez sur Démarrer et attendez 2 secondes.");
-        return;
-      }
-
-      var binNumber = currentBins.length + 1;
-      var note = prompt("Nom de l'arrêt / Poubelle :", "Arrêt N°" + binNumber);
-      if (note === null) return;
-
-      var binPoint = {
-        number: binNumber,
-        name: note || ("Arrêt N°" + binNumber),
-        lat: lastKnownPos.lat,
-        lon: lastKnownPos.lon,
-        time: new Date().toLocaleTimeString()
-      };
-
-      currentBins.push(binPoint);
-      addBinMarkerToMap(binPoint);
-    }
-
-    function addBinMarkerToMap(bin) {
-      var icon = L.divIcon({
-        className: 'bin-icon',
-        html: bin.number,
-        iconSize: [26, 26],
-        iconAnchor: [13, 13]
-      });
-
-      var marker = L.marker([bin.lat, bin.lon], { icon: icon })
-        .addTo(map)
-        .bindPopup("<b>" + bin.name + "</b><br>Heure : " + bin.time);
-
-      binMarkersOnMap.push(marker);
-    }
-
-    function clearMapMarkers() {
-      binMarkersOnMap.forEach(function(m) { map.removeLayer(m); });
-      binMarkersOnMap = [];
-      if (currentPositionMarker) {
-        map.removeLayer(currentPositionMarker);
-        currentPositionMarker = null;
-      }
-    }
-
-    function stopTracking() {
-      if (watchId !== null) {
-        navigator.geolocation.clearWatch(watchId);
-        watchId = null;
-      }
-      
-      document.getElementById('addBinBtn').disabled = true;
-      document.getElementById('startBtn').disabled = false;
-      document.getElementById('stopBtn').disabled = true;
-      document.getElementById('saveBtn').disabled = (currentPath.length === 0 && currentBins.length === 0);
-    }
-
-    function saveCurrentRun() {
-      var name = prompt("Nom de la tournée :", "Tournée du " + new Date().toLocaleDateString());
-      if (!name) return;
-
-      var newRun = {
-        id: Date.now(),
-        name: name,
-        date: new Date().toLocaleString(),
-        points: currentPath,
-        bins: currentBins
-      };
-
-      savedRuns.push(newRun);
-      localStorage.setItem('my_runs', JSON.stringify(savedRuns));
-      alert("Tournée sauvegardée !");
-      document.getElementById('saveBtn').disabled = true;
-    }
-
-    function renderHistory() {
-      var container = document.getElementById('historyList');
-      container.innerHTML = '<h2>Trajets & Arrêts Enregistrés</h2>';
-
-      if (savedRuns.length === 0) {
-        container.innerHTML += '<p>Aucun trajet enregistré pour le moment.</p>';
-        return;
-      }
-
-      savedRuns.forEach(function(run) {
-        var firstPt = run.points[0] || (run.bins[0] ? { lat: run.bins[0].lat, lon: run.bins[0].lon } : { lat: 0, lon: 0 });
-        var card = document.createElement('div');
-        card.className = 'card';
-        
-        var binsListHTML = '';
-        if (run.bins && run.bins.length > 0) {
-          binsListHTML = '<ol style="padding-left: 20px; margin: 8px 0; font-size: 0.85rem;">';
-          run.bins.forEach(function(b) {
-            var wazeUrl = "https://waze.com/ul?ll=" + b.lat + "," + b.lon + "&navigate=yes";
-            var gmapsUrl = "https://www.google.com/maps/search/?api=1&query=" + b.lat + "," + b.lon;
-            binsListHTML += '<li><b>' + b.name + '</b> (' + b.time + ') - ' +
-              '<a href="' + wazeUrl + '" target="_blank" style="color:#28a745; font-weight:bold;">Waze</a> | ' +
-              '<a href="' + gmapsUrl + '" target="_blank" style="color:#4285F4; font-weight:bold;">Google Maps</a></li>';
-          });
-          binsListHTML += '</ol>';
-        } else {
-          binsListHTML = '<p><i>Aucun arrêt spécifique enregistré.</i></p>';
-        }
-
-        var binCount = run.bins ? run.bins.length : 0;
-        var startWaze = "https://waze.com/ul?ll=" + firstPt.lat + "," + firstPt.lon + "&navigate=yes";
-        var startGmaps = "https://www.google.com/maps/search/?api=1&query=" + firstPt.lat + "," + firstPt.lon;
-
-        card.innerHTML = '<h3>' + run.name + '</h3>' +
-          '<p><b>Date:</b> ' + run.date + ' | <b>Arrêts Poubelles:</b> ' + binCount + '</p>' +
-          '<details><summary style="cursor:pointer; color:#007bff; font-weight:bold; margin-bottom:10px;">📋 Afficher la liste des arrêts</summary>' + binsListHTML + '</details>' +
-          '<div class="card-btns">' +
-            '<button class="btn-sm bg-blue" onclick="loadRunOnMap(' + run.id + ')">Voir Tracé (Flèches)</button>' +
-            '<a class="btn-sm bg-green" href="' + startWaze + '" target="_blank">Waze (Départ)</a>' +
-            '<a class="btn-sm bg-gmaps" href="' + startGmaps + '" target="_blank">Google Maps (Départ)</a>' +
-            '<button class="btn-sm bg-red" onclick="deleteRun(' + run.id + ')">Supprimer</button>' +
-          '</div>';
-
-        container.appendChild(card);
-      });
-    }
-
-    function loadRunOnMap(id) {
-      var run = savedRuns.find(function(r) { return r.id === id; });
-      if (!run) return;
-
-      switchTab('tab-carte');
-      clearMapMarkers();
-
-      polyline.setLatLngs(run.points.map(function(p) { return [p.lat, p.lon]; }));
-      if (decorator) decorator.setPaths(polyline);
-      
-      if (run.bins) {
-        run.bins.forEach(function(bin) { addBinMarkerToMap(bin); });
-      }
-
-      if (run.points.length > 0) {
-        map.fitBounds(polyline.getBounds());
-      }
-    }
-
-    function deleteRun(id) {
-      if(confirm("Supprimer ce trajet ?")) {
-        savedRuns = savedRuns.filter(function(r) { return r.id !== id; });
-        localStorage.setItem('my_runs', JSON.stringify(savedRuns));
-        renderHistory();
-      }
-    }
-  </script>
-</body>
-</html>
+  currentBins.push(binPoint);
+  addBinMarkerToMap(binPoint);
+}
