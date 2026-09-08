@@ -10,7 +10,6 @@
   <style>
     body, html { margin: 0; padding: 0; height: 100%; width: 100%; font-family: sans-serif; display: flex; flex-direction: column; background: #f4f4f9; }
     
-    /* Navigation par Onglets */
     .tabs { display: flex; background: #333; color: white; }
     .tab-btn { flex: 1; padding: 15px 5px; border: none; background: none; color: white; font-weight: bold; font-size: 0.85rem; cursor: pointer; }
     .tab-btn.active { background: #007bff; border-bottom: 4px solid #fff; }
@@ -18,7 +17,6 @@
     .tab-content { display: none; flex: 1; flex-direction: column; height: calc(100% - 50px); }
     .tab-content.active { display: flex; }
 
-    /* Carte et Commandes */
     #map { flex: 1; width: 100%; }
     .controls { padding: 10px; background: white; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 -2px 10px rgba(0,0,0,0.1); }
     .btn-row { display: flex; gap: 8px; }
@@ -31,7 +29,6 @@
 
     button:disabled { background-color: #cccccc !important; cursor: not-allowed; }
 
-    /* Listes d'onglets */
     .list-container { padding: 15px; overflow-y: auto; }
     .card { background: white; padding: 15px; border-radius: 8px; margin-bottom: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
     .card h3 { margin: 0 0 8px 0; font-size: 1.1rem; }
@@ -44,9 +41,7 @@
     .bg-gmaps { background: #4285F4; }
     .bg-orange { background: #fd7e14; }
     .bg-red { background: #dc3545; }
-    .bg-purple { background: #6f42c1; }
 
-    /* Icone Numérotée personnalisée pour la carte */
     .bin-icon {
       background-color: #fd7e14;
       color: white;
@@ -62,13 +57,11 @@
 </head>
 <body>
 
-  <!-- Menu Onglets -->
   <div class="tabs">
     <button class="tab-btn active" onclick="switchTab('tab-carte')"> Carte / Suivi</button>
     <button class="tab-btn" onclick="switchTab('tab-historique')"> Historique & Arrêts</button>
   </div>
 
-  <!-- ONGLET 1 : CARTE ET ENREGISTREMENT -->
   <div id="tab-carte" class="tab-content active">
     <div id="map"></div>
     <div class="controls">
@@ -82,7 +75,6 @@
     </div>
   </div>
 
-  <!-- ONGLET 2 : HISTORIQUE ET LISTE DES ARRÊTS -->
   <div id="tab-historique" class="tab-content">
     <div class="list-container" id="historyList">
       <h2>Trajets & Arrêts Enregistrés</h2>
@@ -93,34 +85,41 @@
   <script src="https://unpkg.com/leaflet-polylinedecorator@1.6.0/leaflet.polylineDecorator.js"></script>
   
   <script>
-    let map, polyline, decorator, currentPositionMarker;
+    let map, polyline, decorator, livePolyline, currentPositionMarker;
     let watchId = null;
     let currentPath = [];
     let currentBins = [];
     let binMarkersOnMap = [];
     let lastKnownPos = null;
+    let isLoadedRunActive = false;
     
     let savedRuns = JSON.parse(localStorage.getItem('my_runs') || '[]');
 
-    // Initialisation de la Carte
     map = L.map('map').setView([46.603354, 1.888334], 6);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
     
+    // Tracé de la tournée enregistrée (Bleu)
     polyline = L.polyline([], { color: '#0066ff', weight: 6 }).addTo(map);
-
-    // Module des flèches de direction
     decorator = L.polylineDecorator(polyline, {
       patterns: [
-        { offset: 25, repeat: 50, symbol: L.Symbol.arrowHead({ pixelSize: 10, pathOptions: { fillOpacity: 1, color: '#ffffff', stroke: false } }) }
+        { offset: 10, repeat: 40, symbol: L.Symbol.arrowHead({ pixelSize: 12, pathOptions: { fillOpacity: 1, color: '#003399', stroke: false } }) }
       ]
     }).addTo(map);
+
+    // Tracé en direct pendant la conduite (Rouge)
+    livePolyline = L.polyline([], { color: '#ff0000', weight: 5, dashArray: '5, 10' }).addTo(map);
 
     function switchTab(tabId) {
       document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
       document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
       document.getElementById(tabId).classList.add('active');
       
-      if(tabId === 'tab-carte') setTimeout(() => map.invalidateSize(), 200);
+      if(tabId === 'tab-carte') {
+        setTimeout(() => {
+          map.invalidateSize();
+          if (decorator) decorator.redraw();
+        }, 300);
+      }
       if(tabId === 'tab-historique') renderHistory();
     }
 
@@ -128,10 +127,15 @@
       if (!navigator.geolocation) return alert("GPS non supporté");
       
       currentPath = [];
-      currentBins = [];
-      clearMapMarkers();
-      polyline.setLatLngs([]);
-      if (decorator) decorator.setPaths(polyline);
+      livePolyline.setLatLngs([]);
+      
+      // Si aucune tournée enregistrée n'est chargée, on efface la carte
+      if (!isLoadedRunActive) {
+        clearMapMarkers();
+        polyline.setLatLngs([]);
+        if (decorator) decorator.setPaths([]);
+        currentBins = [];
+      }
       
       document.getElementById('startBtn').disabled = true;
       document.getElementById('stopBtn').disabled = false;
@@ -145,8 +149,7 @@
           lastKnownPos = { lat, lon, time: new Date().toISOString() };
           
           currentPath.push(lastKnownPos);
-          polyline.addLatLng([lat, lon]);
-          if (decorator) decorator.setPaths(polyline);
+          livePolyline.addLatLng([lat, lon]);
 
           if (!currentPositionMarker) {
             currentPositionMarker = L.marker([lat, lon]).addTo(map);
@@ -161,14 +164,10 @@
     }
 
     function addBinStop() {
-      if (!lastKnownPos) {
-        alert("En attente du signal GPS...");
-        return;
-      }
+      if (!lastKnownPos) return alert("En attente du signal GPS...");
 
       const binNumber = currentBins.length + 1;
-      const note = prompt(`Ajouter Arrêt N°${binNumber} (ex: 12 Rue des Fleurs / Bac jaune) :`, `Arrêt N°${binNumber}`);
-      
+      const note = prompt(`Ajouter Arrêt N°${binNumber} :`, `Arrêt N°${binNumber}`);
       if (note === null) return;
 
       const binPoint = {
@@ -232,8 +231,9 @@
 
       savedRuns.push(newRun);
       localStorage.setItem('my_runs', JSON.stringify(savedRuns));
-      alert(`Tournée sauvegardée avec ${currentBins.length} poubelle(s)/arrêt(s) enregistré(s) !`);
+      alert(`Tournée sauvegardée !`);
       document.getElementById('saveBtn').disabled = true;
+      isLoadedRunActive = false;
     }
 
     function renderHistory() {
@@ -276,7 +276,7 @@
           </details>
 
           <div class="card-btns" style="margin-top: 10px;">
-            <button class="btn-sm bg-blue" onclick="loadRunOnMap(${run.id})">Voir Tracé (Flèches)</button>
+            <button class="btn-sm bg-blue" onclick="loadRunOnMap(${run.id})">Suivre cette Tournée</button>
             <a class="btn-sm bg-green" href="${startWaze}" target="_blank">Waze (Départ)</a>
             <a class="btn-sm bg-gmaps" href="${startGmaps}" target="_blank">Google Maps (Départ)</a>
             <button class="btn-sm bg-red" onclick="deleteRun(${run.id})">Supprimer</button>
@@ -292,9 +292,15 @@
 
       switchTab('tab-carte');
       clearMapMarkers();
+      livePolyline.setLatLngs([]);
 
-      polyline.setLatLngs(run.points.map(p => [p.lat, p.lon]));
-      if (decorator) decorator.setPaths(polyline);
+      const latLngs = run.points.map(p => [p.lat, p.lon]);
+      polyline.setLatLngs(latLngs);
+      
+      // Force l'affichage immédiat des flèches
+      if (decorator) {
+        decorator.setPaths(polyline);
+      }
       
       if (run.bins) {
         run.bins.forEach(bin => addBinMarkerToMap(bin));
@@ -304,7 +310,8 @@
         map.fitBounds(polyline.getBounds());
       }
 
-      alert(`Tournée "${run.name}" chargée avec ses ${run.bins ? run.bins.length : 0} arrêt(s).`);
+      isLoadedRunActive = true;
+      alert(`Tournée "${run.name}" affichée sur la carte avec ses flèches.\nCliquez sur DÉMARRER pour enregistrer votre parcours par-dessus.`);
     }
 
     function deleteRun(id) {
