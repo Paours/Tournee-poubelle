@@ -39,6 +39,304 @@
     .bg-blue { background: #007bff; }
     .bg-green { background: #28a745; }
     .bg-gmaps { background: #4285F4; }
+    .bg-red { background: #dc3545; }
+
+    .bin-icon {
+      background-color: #fd7e14;
+      color: white;
+      border: 2px solid white;
+      border-radius: 50%;
+      font-weight: bold;
+      text-align: center;
+      line-height: 24px;
+      font-size: 12px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.4);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="tabs">
+    <button class="tab-btn active" id="btn-tab-carte" onclick="switchTab('tab-carte')">Carte / Suivi</button>
+    <button class="tab-btn" id="btn-tab-historique" onclick="switchTab('tab-historique')">Historique & Arrêts</button>
+  </div>
+
+  <div id="tab-carte" class="tab-content active">
+    <div id="map"></div>
+    <div class="controls">
+      <button id="addBinBtn" class="action-btn btn-bin" onclick="addBinStop()" disabled>🗑️ + Enregistrer Poubelle / Arrêt</button>
+      
+      <div class="btn-row">
+        <button id="startBtn" class="action-btn btn-start" onclick="startTracking()">Démarrer</button>
+        <button id="stopBtn" class="action-btn btn-stop" onclick="stopTracking()" disabled>Arrêter</button>
+        <button id="saveBtn" class="action-btn btn-save" onclick="saveCurrentRun()" disabled>Sauvegarder</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-historique" class="tab-content">
+    <div class="list-container" id="historyList">
+      <h2>Trajets & Arrêts Enregistrés</h2>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet-polylinedecorator@1.6.0/leaflet.polylineDecorator.js"></script>
+  
+  <script>
+    let map, polyline, decorator, livePolyline, currentPositionMarker;
+    let watchId = null;
+    let currentPath = [];
+    let currentBins = [];
+    let binMarkersOnMap = [];
+    let lastKnownPos = null;
+    let isLoadedRunActive = false;
+    
+    let savedRuns = JSON.parse(localStorage.getItem('my_runs') || '[]');
+
+    map = L.map('map').setView([46.603354, 1.888334], 6);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+    
+    polyline = L.polyline([], { color: '#0066ff', weight: 6 }).addTo(map);
+    decorator = L.polylineDecorator(polyline, {
+      patterns: [
+        { offset: 15, repeat: 50, symbol: L.Symbol.arrowHead({ pixelSize: 12, pathOptions: { fillOpacity: 1, color: '#003399', stroke: false } }) }
+      ]
+    }).addTo(map);
+
+    livePolyline = L.polyline([], { color: '#ff0000', weight: 5 }).addTo(map);
+
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+      
+      document.getElementById(tabId).classList.add('active');
+      document.getElementById('btn-' + tabId).classList.add('active');
+      
+      if(tabId === 'tab-carte') {
+        setTimeout(() => {
+          map.invalidateSize();
+          if (decorator) decorator.redraw();
+        }, 200);
+      }
+      if(tabId === 'tab-historique') {
+        renderHistory();
+      }
+    }
+
+    function startTracking() {
+      if (!navigator.geolocation) {
+        alert("GPS non supporté sur cet appareil.");
+        return;
+      }
+      
+      currentPath = [];
+      livePolyline.setLatLngs([]);
+      
+      if (!isLoadedRunActive) {
+        clearMapMarkers();
+        polyline.setLatLngs([]);
+        if (decorator) decorator.setPaths([]);
+        currentBins = [];
+      }
+      
+      document.getElementById('startBtn').disabled = true;
+      document.getElementById('stopBtn').disabled = false;
+      document.getElementById('addBinBtn').disabled = false;
+      document.getElementById('saveBtn').disabled = true;
+
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          const lat = pos.coords.latitude;
+          const lon = pos.coords.longitude;
+          lastKnownPos = { lat, lon, time: new Date().toISOString() };
+          
+          currentPath.push(lastKnownPos);
+          livePolyline.addLatLng([lat, lon]);
+
+          if (!currentPositionMarker) {
+            currentPositionMarker = L.marker([lat, lon]).addTo(map);
+            map.setView([lat, lon], 17);
+          } else {
+            currentPositionMarker.setLatLng([lat, lon]);
+            map.panTo([lat, lon]);
+          }
+        },
+        (err) => {
+          alert("Erreur GPS : " + err.message);
+          stopTracking();
+        },
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+      );
+    }
+
+    function addBinStop() {
+      if (!lastKnownPos) {
+        alert("En attente du signal GPS...");
+        return;
+      }
+
+      const binNumber = currentBins.length + 1;
+      const note = prompt(`Ajouter Arrêt N°${binNumber} :`, `Arrêt N°${binNumber}`);
+      if (note === null) return;
+
+      const binPoint = {
+        number: binNumber,
+        name: note || `Arrêt N°${binNumber}`,
+        lat: lastKnownPos.lat,
+        lon: lastKnownPos.lon,
+        time: new Date().toLocaleTimeString()
+      };
+
+      currentBins.push(binPoint);
+      addBinMarkerToMap(binPoint);
+    }
+
+    function addBinMarkerToMap(bin) {
+      const icon = L.divIcon({
+        className: 'bin-icon',
+        html: bin.number,
+        iconSize: [26, 26],
+        iconAnchor: [13, 13]
+      });
+
+      const marker = L.marker([bin.lat, bin.lon], { icon: icon })
+        .addTo(map)
+        .bindPopup(`<b>${bin.name}</b><br>Heure : ${bin.time}`);
+
+      binMarkersOnMap.push(marker);
+    }
+
+    function clearMapMarkers() {
+      binMarkersOnMap.forEach(m => map.removeLayer(m));
+      binMarkersOnMap = [];
+      if (currentPositionMarker) {
+        map.removeLayer(currentPositionMarker);
+        currentPositionMarker = null;
+      }
+    }
+
+    function stopTracking() {
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+      }
+      document.getElementById('startBtn').disabled = false;
+      document.getElementById('stopBtn').disabled = true;
+      document.getElementById('addBinBtn').disabled = true;
+      document.getElementById('saveBtn').disabled = currentPath.length === 0;
+    }
+
+    function saveCurrentRun() {
+      const name = prompt("Nom de la tournée :", "Tournée du " + new Date().toLocaleDateString());
+      if (!name) return;
+
+      const newRun = {
+        id: Date.now(),
+        name: name,
+        date: new Date().toLocaleString(),
+        points: currentPath,
+        bins: currentBins
+      };
+
+      savedRuns.push(newRun);
+      localStorage.setItem('my_runs', JSON.stringify(savedRuns));
+      alert("Tournée sauvegardée !");
+      document.getElementById('saveBtn').disabled = true;
+      isLoadedRunActive = false;
+    }
+
+    function renderHistory() {
+      const container = document.getElementById('historyList');
+      container.innerHTML = '<h2>Trajets & Arrêts Enregistrés</h2>';
+
+      if (savedRuns.length === 0) {
+        container.innerHTML += '<p>Aucun trajet enregistré pour le moment.</p>';
+        return;
+      }
+
+      savedRuns.forEach((run) => {
+        const firstPt = run.points[0] || (run.bins[0] ? { lat: run.bins[0].lat, lon: run.bins[0].lon } : { lat: 0, lon: 0 });
+        const card = document.createElement('div');
+        card.className = 'card';
+        
+        let binsListHTML = '';
+        if (run.bins && run.bins.length > 0) {
+          binsListHTML = '<ol style="padding-left: 20px; margin: 8px 0; font-size: 0.85rem;">';
+          run.bins.forEach(b => {
+            const wazeUrl = `https://waze.com/ul?ll=${b.lat},${b.lon}&navigate=yes`;
+            const gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${b.lat},${b.lon}`;
+            binsListHTML += `<li><b>${b.name}</b> (${b.time}) - <a href="${wazeUrl}" target="_blank" style="color:#28a745; font-weight:bold;">Waze</a> | <a href="${gmapsUrl}" target="_blank" style="color:#4285F4; font-weight:bold;">Google Maps</a></li>`;
+          });
+          binsListHTML += '</ol>';
+        } else {
+          binsListHTML = '<p><i>Aucun arrêt spécifique enregistré.</i></p>';
+        }
+
+        const startWaze = `https://waze.com/ul?ll=${firstPt.lat},${firstPt.lon}&navigate=yes`;
+        const startGmaps = `https://www.google.com/maps/search/?api=1&query=${firstPt.lat},${firstPt.lon}`;
+
+        card.innerHTML = `
+          <h3>${run.name}</h3>
+          <p><b>Date:</b> ${run.date} | <b>Arrêts Poubelles:</b> ${run.bins ? run.bins.length : 0}</p>
+          
+          <details>
+            <summary style="cursor:pointer; color:#007bff; font-weight:bold; margin-bottom:10px;">📋 Afficher la liste des arrêts</summary>
+            ${binsListHTML}
+          </details>
+
+          <div class="card-btns" style="margin-top: 10px;">
+            <button class="btn-sm bg-blue" onclick="loadRunOnMap(${run.id})">Voir / Suivre sur Carte</button>
+            <a class="btn-sm bg-green" href="${startWaze}" target="_blank">Waze (Départ)</a>
+            <a class="btn-sm bg-gmaps" href="${startGmaps}" target="_blank">Google Maps (Départ)</a>
+            <button class="btn-sm bg-red" onclick="deleteRun(${run.id})">Supprimer</button>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function loadRunOnMap(id) {
+      const run = savedRuns.find(r => r.id === id);
+      if (!run) return;
+
+      switchTab('tab-carte');
+      clearMapMarkers();
+      livePolyline.setLatLngs([]);
+
+      const pts = run.points.map(p => [p.lat, p.lon]);
+      polyline.setLatLngs(pts);
+      
+      if (decorator) {
+        decorator.setPaths(polyline);
+      }
+      
+      if (run.bins) {
+        run.bins.forEach(bin => addBinMarkerToMap(bin));
+      }
+
+      if (pts.length > 0) {
+        map.fitBounds(polyline.getBounds());
+      }
+
+      isLoadedRunActive = true;
+    }
+
+    function deleteRun(id) {
+      if(confirm("Supprimer ce trajet ?")) {
+        savedRuns = savedRuns.filter(r => r.id !== id);
+        localStorage.setItem('my_runs', JSON.stringify(savedRuns));
+        renderHistory();
+      }
+    }
+  </script>
+</body>
+</html>
+    
+    .btn-sm { padding: 8px 12px; border: none; border-radius: 4px; font-weight: bold; color: white; cursor: pointer; font-size: 0.8rem; text-decoration: none; display: inline-block; }
+    .bg-blue { background: #007bff; }
+    .bg-green { background: #28a745; }
+    .bg-gmaps { background: #4285F4; }
     .bg-orange { background: #fd7e14; }
     .bg-red { background: #dc3545; }
 
