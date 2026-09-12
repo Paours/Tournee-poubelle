@@ -81,10 +81,9 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://unpkg.com/leaflet-polylinedecorator@1.6.0/leaflet.polylineDecorator.js"></script>
   
   <script>
-    let map, polyline, decorator, livePolyline, currentPositionMarker;
+    let map, polyline, livePolyline, currentPositionMarker;
     let watchId = null;
     let currentPath = [];
     let currentBins = [];
@@ -97,13 +96,9 @@
     map = L.map('map').setView([46.603354, 1.888334], 6);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
     
-    polyline = L.polyline([], { color: '#0066ff', weight: 6 }).addTo(map);
-    decorator = L.polylineDecorator(polyline, {
-      patterns: [
-        { offset: 15, repeat: 50, symbol: L.Symbol.arrowHead({ pixelSize: 12, pathOptions: { fillOpacity: 1, color: '#003399', stroke: false } }) }
-      ]
-    }).addTo(map);
-
+    // Tracé de la tournée chargée (en bleu)
+    polyline = L.polyline([], { color: '#0066ff', weight: 6, opacity: 0.7 }).addTo(map);
+    // Tracé en direct de votre position (en rouge)
     livePolyline = L.polyline([], { color: '#ff0000', weight: 5 }).addTo(map);
 
     function switchTab(tabId) {
@@ -116,7 +111,6 @@
       if(tabId === 'tab-carte') {
         setTimeout(() => {
           map.invalidateSize();
-          if (decorator) decorator.redraw();
         }, 200);
       }
       if(tabId === 'tab-historique') {
@@ -133,10 +127,10 @@
       currentPath = [];
       livePolyline.setLatLngs([]);
       
+      // Si aucune tournée n'est chargée, on nettoie la carte
       if (!isLoadedRunActive) {
         clearMapMarkers();
         polyline.setLatLngs([]);
-        if (decorator) decorator.setPaths([]);
         currentBins = [];
       }
       
@@ -155,7 +149,14 @@
           livePolyline.addLatLng([lat, lon]);
 
           if (!currentPositionMarker) {
-            currentPositionMarker = L.marker([lat, lon]).addTo(map);
+            currentPositionMarker = L.circleMarker([lat, lon], {
+              radius: 9,
+              fillColor: '#007bff',
+              color: '#ffffff',
+              weight: 3,
+              opacity: 1,
+              fillOpacity: 0.9
+            }).addTo(map);
             map.setView([lat, lon], 17);
           } else {
             currentPositionMarker.setLatLng([lat, lon]);
@@ -286,7 +287,7 @@
           </details>
 
           <div class="card-btns" style="margin-top: 10px;">
-            <button class="btn-sm bg-blue" onclick="loadRunOnMap(${run.id})">Voir / Suivre sur Carte</button>
+            <button class="btn-sm bg-blue" onclick="loadRunOnMap(${run.id})">Suivre cet itinéraire</button>
             <a class="btn-sm bg-green" href="${startWaze}" target="_blank">Waze (Départ)</a>
             <a class="btn-sm bg-gmaps" href="${startGmaps}" target="_blank">Google Maps (Départ)</a>
             <button class="btn-sm bg-red" onclick="deleteRun(${run.id})">Supprimer</button>
@@ -304,22 +305,23 @@
       clearMapMarkers();
       livePolyline.setLatLngs([]);
 
+      // 1. Affiche le parcours bleu de la tournée enregistrée
       const pts = run.points.map(p => [p.lat, p.lon]);
       polyline.setLatLngs(pts);
       
-      if (decorator) {
-        decorator.setPaths(polyline);
-      }
-      
+      // 2. Affiche les arrêts enregistrés
       if (run.bins) {
         run.bins.forEach(bin => addBinMarkerToMap(bin));
       }
 
+      // 3. Ajuste la vue sur l'itinéraire
       if (pts.length > 0) {
         map.fitBounds(polyline.getBounds());
       }
 
+      // Indique qu'un itinéraire de référence est actif
       isLoadedRunActive = true;
+      currentBins = [...(run.bins || [])];
     }
 
     function deleteRun(id) {
