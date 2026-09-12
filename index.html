@@ -6,6 +6,8 @@
   <title>Gestion Tournées Éboueur</title>
   
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <!-- CSS pour l'affichage visuel des instructions de direction -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
   
   <style>
     body, html { margin: 0; padding: 0; height: 100%; width: 100%; font-family: sans-serif; display: flex; flex-direction: column; background: #f4f4f9; }
@@ -52,6 +54,17 @@
       font-size: 12px;
       box-shadow: 0 2px 5px rgba(0,0,0,0.4);
     }
+
+    /* Style du panneau d'instructions visuelles */
+    .leaflet-routing-container {
+      background-color: white;
+      padding: 10px;
+      font-size: 13px;
+      max-height: 200px;
+      overflow-y: auto;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
   </style>
 </head>
 <body>
@@ -81,25 +94,22 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  
+  <!-- JS pour le moteur d'itinéraire et d'instructions visuelles -->
+  <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+
   <script>
-    let map, polyline, livePolyline, currentPositionMarker;
+    let map, routingControl, currentPositionMarker;
     let watchId = null;
     let currentPath = [];
     let currentBins = [];
     let binMarkersOnMap = [];
     let lastKnownPos = null;
-    let isLoadedRunActive = false;
+    let loadedWaypoints = [];
     
     let savedRuns = JSON.parse(localStorage.getItem('my_runs') || '[]');
 
     map = L.map('map').setView([46.603354, 1.888334], 6);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
-    
-    // Tracé de la tournée chargée (en bleu)
-    polyline = L.polyline([], { color: '#0066ff', weight: 6, opacity: 0.7 }).addTo(map);
-    // Tracé en direct de votre position (en rouge)
-    livePolyline = L.polyline([], { color: '#ff0000', weight: 5 }).addTo(map);
 
     function switchTab(tabId) {
       document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -109,9 +119,7 @@
       document.getElementById('btn-' + tabId).classList.add('active');
       
       if(tabId === 'tab-carte') {
-        setTimeout(() => {
-          map.invalidateSize();
-        }, 200);
+        setTimeout(() => { map.invalidateSize(); }, 200);
       }
       if(tabId === 'tab-historique') {
         renderHistory();
@@ -125,14 +133,6 @@
       }
       
       currentPath = [];
-      livePolyline.setLatLngs([]);
-      
-      // Si aucune tournée n'est chargée, on nettoie la carte
-      if (!isLoadedRunActive) {
-        clearMapMarkers();
-        polyline.setLatLngs([]);
-        currentBins = [];
-      }
       
       document.getElementById('startBtn').disabled = true;
       document.getElementById('stopBtn').disabled = false;
@@ -146,8 +146,8 @@
           lastKnownPos = { lat, lon, time: new Date().toISOString() };
           
           currentPath.push(lastKnownPos);
-          livePolyline.addLatLng([lat, lon]);
 
+          // Mise à jour du marqueur de position GPS
           if (!currentPositionMarker) {
             currentPositionMarker = L.circleMarker([lat, lon], {
               radius: 9,
@@ -162,6 +162,11 @@
             currentPositionMarker.setLatLng([lat, lon]);
             map.panTo([lat, lon]);
           }
+
+          // Si une tournée est chargée, mise à jour du guidage visuel en direct à partir du point GPS
+          if (loadedWaypoints.length > 0) {
+            updateGuidance([L.latLng(lat, lon), ...loadedWaypoints]);
+          }
         },
         (err) => {
           alert("Erreur GPS : " + err.message);
@@ -169,6 +174,24 @@
         },
         { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
       );
+    }
+
+    function updateGuidance(waypoints) {
+      if (routingControl) {
+        routingControl.setWaypoints(waypoints);
+      } else {
+        routingControl = L.Routing.control({
+          waypoints: waypoints,
+          routeWhileDragging: false,
+          addWaypoints: false,
+          draggableWaypoints: false,
+          fitSelectedRoutes: true,
+          showAlternatives: false,
+          lineOptions: {
+            styles: [{ color: '#0066ff', opacity: 0.8, weight: 6 }]
+          }
+        }).addTo(map);
+      }
     }
 
     function addBinStop() {
@@ -215,6 +238,10 @@
         map.removeLayer(currentPositionMarker);
         currentPositionMarker = null;
       }
+      if (routingControl) {
+        map.removeControl(routingControl);
+        routingControl = null;
+      }
     }
 
     function stopTracking() {
@@ -244,7 +271,7 @@
       localStorage.setItem('my_runs', JSON.stringify(savedRuns));
       alert("Tournée sauvegardée !");
       document.getElementById('saveBtn').disabled = true;
-      isLoadedRunActive = false;
+      loadedWaypoints = [];
     }
 
     function renderHistory() {
@@ -287,7 +314,7 @@
           </details>
 
           <div class="card-btns" style="margin-top: 10px;">
-            <button class="btn-sm bg-blue" onclick="loadRunOnMap(${run.id})">Suivre cet itinéraire</button>
+            <button class="btn-sm bg-blue" onclick="loadRunOnMap(${run.id})">Lancer le guidage visuel</button>
             <a class="btn-sm bg-green" href="${startWaze}" target="_blank">Waze (Départ)</a>
             <a class="btn-sm bg-gmaps" href="${startGmaps}" target="_blank">Google Maps (Départ)</a>
             <button class="btn-sm bg-red" onclick="deleteRun(${run.id})">Supprimer</button>
@@ -303,24 +330,21 @@
 
       switchTab('tab-carte');
       clearMapMarkers();
-      livePolyline.setLatLngs([]);
 
-      // 1. Affiche le parcours bleu de la tournée enregistrée
-      const pts = run.points.map(p => [p.lat, p.lon]);
-      polyline.setLatLngs(pts);
-      
-      // 2. Affiche les arrêts enregistrés
-      if (run.bins) {
+      // Utilisation des points clés/arrêts sauvegardés pour construire la feuille de route
+      if (run.bins && run.bins.length > 0) {
+        loadedWaypoints = run.bins.map(b => L.latLng(b.lat, b.lon));
         run.bins.forEach(bin => addBinMarkerToMap(bin));
+      } else if (run.points && run.points.length > 0) {
+        // Sélection de points espacés si pas d'arrêts explicites
+        const step = Math.max(1, Math.floor(run.points.length / 5));
+        loadedWaypoints = run.points.filter((_, index) => index % step === 0).map(p => L.latLng(p.lat, p.lon));
       }
 
-      // 3. Ajuste la vue sur l'itinéraire
-      if (pts.length > 0) {
-        map.fitBounds(polyline.getBounds());
+      if (loadedWaypoints.length > 0) {
+        updateGuidance(loadedWaypoints);
       }
 
-      // Indique qu'un itinéraire de référence est actif
-      isLoadedRunActive = true;
       currentBins = [...(run.bins || [])];
     }
 
