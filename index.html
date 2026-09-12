@@ -39,6 +39,7 @@
     #guidance-text { flex: 1; }
     #guidance-text strong { display: block; font-size: 1.1rem; color: #ffca28; }
     #guidance-text span { font-size: 0.85rem; color: #ddd; }
+    #guidance-instruction { font-size: 0.95rem; font-weight: bold; color: #28a745; margin-top: 2px; }
 
     .controls { padding: 10px; background: white; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 -2px 10px rgba(0,0,0,0.1); z-index: 2; }
     .btn-row { display: flex; gap: 8px; }
@@ -89,6 +90,7 @@
       <div id="guidance-text">
         <strong id="guidance-dist">--- m</strong>
         <span id="guidance-next">En attente du GPS...</span>
+        <div id="guidance-instruction">---</div>
       </div>
     </div>
 
@@ -114,15 +116,16 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
   <script>
-    let map, refPolyline, livePolyline, currentPositionMarker;
+    let map, refPolyline, livePolyline, accessPolyline, currentPositionMarker;
     let watchId = null;
     let currentPath = [];
     let currentBins = [];
     let binMarkersOnMap = [];
     let lastKnownPos = null;
+    let prevPos = null; // Utilisé pour calculer le cap de déplacement
     
     let targetPoints = [];
-    let currentTargetIndex = 0; // Index forcé du point à atteindre
+    let currentTargetIndex = 0;
     
     let savedRuns = JSON.parse(localStorage.getItem('my_runs') || '[]');
 
@@ -131,6 +134,9 @@
 
     refPolyline = L.polyline([], { color: '#0066ff', weight: 6, opacity: 0.7 }).addTo(map);
     livePolyline = L.polyline([], { color: '#ff0000', weight: 5 }).addTo(map);
+    
+    // Ligne pointillée reliant la position GPS au point cible en cours
+    accessPolyline = L.polyline([], { color: '#8a2be2', weight: 4, dashArray: '8, 8', opacity: 0.9 }).addTo(map);
 
     function switchTab(tabId) {
       document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -165,7 +171,11 @@
         (pos) => {
           const lat = pos.coords.latitude;
           const lon = pos.coords.longitude;
-          lastKnownPos = { lat, lon, time: new Date().toISOString() };
+          
+          if (lastKnownPos) {
+            prevPos = lastKnownPos;
+          }
+          lastKnownPos = { lat, lon, heading: pos.coords.heading, time: new Date().toISOString() };
           
           currentPath.push(lastKnownPos);
           livePolyline.addLatLng([lat, lon]);
@@ -185,7 +195,7 @@
             map.panTo([lat, lon]);
           }
 
-          updateVisualGuidance(lat, lon);
+          updateVisualGuidance(lat, lon, pos.coords.heading);
         },
         (err) => {
           alert("Erreur GPS : " + err.message);
@@ -212,43 +222,96 @@
       return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
     }
 
-    function updateVisualGuidance(currentLat, currentLon) {
+    function updateVisualGuidance(currentLat, currentLon, gpsHeading) {
       if (targetPoints.length === 0) return;
 
-      // Si tous les points sont validés
       if (currentTargetIndex >= targetPoints.length) {
         document.getElementById('guidance-panel').style.display = 'flex';
         document.getElementById('guidance-dist').innerText = 'Arrivé !';
         document.getElementById('guidance-next').innerText = 'Tournée terminée';
+        document.getElementById('guidance-instruction').innerText = '🏁 Vous êtes arrivé au dernier point';
         document.getElementById('guidance-arrow').innerText = '🏁';
+        accessPolyline.setLatLngs([]);
         return;
       }
 
       const nextTarget = targetPoints[currentTargetIndex];
+      
+      // Tracer la ligne de raccordement directe vers l'étape active
+      accessPolyline.setLatLngs([
+        [currentLat, currentLon],
+        [nextTarget.lat, nextTarget.lon]
+      ]);
+
       const dist = getDistanceMeters(currentLat, currentLon, nextTarget.lat, nextTarget.lon);
 
-      // Si on arrive à moins de 25 mètres du point, on valide et on passe au point suivant
+      // Validation automatique dès qu'on arrive à moins de 25 mètres
       if (dist <= 25 && currentTargetIndex < targetPoints.length - 1) {
         currentTargetIndex++;
-        updateVisualGuidance(currentLat, currentLon);
+        updateVisualGuidance(currentLat, currentLon, gpsHeading);
         return;
+      }
+
+      // Calcul du cap absolu vers la cible
+      const targetBearing = getBearing(currentLat, currentLon, nextTarget.lat, nextTarget.lon);
+
+      // Détermination du cap du véhicule (via GPS natif ou calcul basé sur la position précédente)
+      let currentHeading = gpsHeading;
+      if ((currentHeading === null || isNaN(currentHeading)) && prevPos) {
+        currentHeading = getBearing(prevPos.lat, prevPos.lon, currentLat, currentLon);
+      }
+
+      // Calcul de la direction relative (Gauche / Droite / Tout droit)
+      let instructionText = "Tout droit";
+      let arrow = "⬆️";
+
+      if (currentHeading !== null && !isNaN(currentHeading)) {
+        let relativeAngle = (targetBearing - currentHeading + 360) % 360;
+
+        if (relativeAngle > 180) relativeAngle -= 360;
+
+        if (relativeAngle >= -22.5 && relativeAngle <= 22.5) {
+          instructionText = "Tout droit";
+          arrow = "⬆️";
+        } else if (relativeAngle > 22.5 && relativeAngle <= 67.5) {
+          instructionText = "Légèrement à droite";
+          arrow = "↗️";
+        } else if (relativeAngle > 67.5 && relativeAngle <= 112.5) {
+          instructionText = "Tournez à droite ➡️";
+          arrow = "➡️";
+        } else if (relativeAngle > 112.5 && relativeAngle <= 157.5) {
+          instructionText = "Serrer fortement à droite";
+          arrow = "↘️";
+        } else if (relativeAngle < -22.5 && relativeAngle >= -67.5) {
+          instructionText = "Légèrement à gauche";
+          arrow = "↖️";
+        } else if (relativeAngle < -67.5 && relativeAngle >= -112.5) {
+          instructionText = "Tournez à gauche ⬅️";
+          arrow = "⬅️";
+        } else if (relativeAngle < -112.5 && relativeAngle >= -157.5) {
+          instructionText = "Serrer fortement à gauche";
+          arrow = "↙️";
+        } else {
+          instructionText = "Faire demi-tour ↩️";
+          arrow = "⬇️";
+        }
+      } else {
+        // Mode boussole absolue par défaut (en l'absence de déplacement initial)
+        if (targetBearing >= 337.5 || targetBearing < 22.5) arrow = '⬆️';
+        else if (targetBearing >= 22.5 && targetBearing < 67.5) arrow = '↗️';
+        else if (targetBearing >= 67.5 && targetBearing < 112.5) arrow = '➡️';
+        else if (targetBearing >= 112.5 && targetBearing < 157.5) arrow = '↘️';
+        else if (targetBearing >= 157.5 && targetBearing < 202.5) arrow = '⬇️';
+        else if (targetBearing >= 202.5 && targetBearing < 247.5) arrow = '↙️';
+        else if (targetBearing >= 247.5 && targetBearing < 292.5) arrow = '⬅️';
+        else if (targetBearing >= 292.5 && targetBearing < 337.5) arrow = '↖️';
+        instructionText = "Cap vers la cible";
       }
 
       document.getElementById('guidance-panel').style.display = 'flex';
       document.getElementById('guidance-dist').innerText = dist > 1000 ? (dist / 1000).toFixed(1) + ' km' : dist + ' m';
       document.getElementById('guidance-next').innerText = `Étape ${currentTargetIndex + 1}/${targetPoints.length} : ` + (nextTarget.name || 'Point d\'itinéraire');
-
-      const bearing = getBearing(currentLat, currentLon, nextTarget.lat, nextTarget.lon);
-      let arrow = '⬆️';
-      if (bearing >= 337.5 || bearing < 22.5) arrow = '⬆️';
-      else if (bearing >= 22.5 && bearing < 67.5) arrow = '↗️';
-      else if (bearing >= 67.5 && bearing < 112.5) arrow = '➡️';
-      else if (bearing >= 112.5 && bearing < 157.5) arrow = '↘️';
-      else if (bearing >= 157.5 && bearing < 202.5) arrow = '⬇️';
-      else if (bearing >= 202.5 && bearing < 247.5) arrow = '↙️';
-      else if (bearing >= 247.5 && bearing < 292.5) arrow = '⬅️';
-      else if (bearing >= 292.5 && bearing < 337.5) arrow = '↖️';
-
+      document.getElementById('guidance-instruction').innerText = instructionText;
       document.getElementById('guidance-arrow').innerText = arrow;
     }
 
@@ -296,6 +359,7 @@
         map.removeLayer(currentPositionMarker);
         currentPositionMarker = null;
       }
+      accessPolyline.setLatLngs([]);
       document.getElementById('guidance-panel').style.display = 'none';
     }
 
@@ -389,7 +453,6 @@
       const pts = run.points.map(p => [p.lat, p.lon]);
       refPolyline.setLatLngs(pts);
 
-      // Force le guidage à commencer au point 0
       currentTargetIndex = 0;
 
       if (run.bins && run.bins.length > 0) {
