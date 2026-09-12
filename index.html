@@ -116,13 +116,13 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
   <script>
-    let map, refPolyline, livePolyline, accessPolyline, currentPositionMarker;
+    let map, refPolyline, livePolyline, routePolyline, currentPositionMarker;
     let watchId = null;
     let currentPath = [];
     let currentBins = [];
     let binMarkersOnMap = [];
     let lastKnownPos = null;
-    let prevPos = null; // Utilisé pour calculer le cap de déplacement
+    let lastRouteCalcTime = 0;
     
     let targetPoints = [];
     let currentTargetIndex = 0;
@@ -135,8 +135,8 @@
     refPolyline = L.polyline([], { color: '#0066ff', weight: 6, opacity: 0.7 }).addTo(map);
     livePolyline = L.polyline([], { color: '#ff0000', weight: 5 }).addTo(map);
     
-    // Ligne pointillée reliant la position GPS au point cible en cours
-    accessPolyline = L.polyline([], { color: '#8a2be2', weight: 4, dashArray: '8, 8', opacity: 0.9 }).addTo(map);
+    // Trajet routier réel jusqu'à l'étape
+    routePolyline = L.polyline([], { color: '#8a2be2', weight: 6, opacity: 0.9 }).addTo(map);
 
     function switchTab(tabId) {
       document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -172,11 +172,7 @@
           const lat = pos.coords.latitude;
           const lon = pos.coords.longitude;
           
-          if (lastKnownPos) {
-            prevPos = lastKnownPos;
-          }
-          lastKnownPos = { lat, lon, heading: pos.coords.heading, time: new Date().toISOString() };
-          
+          lastKnownPos = { lat, lon, time: new Date().toISOString() };
           currentPath.push(lastKnownPos);
           livePolyline.addLatLng([lat, lon]);
 
@@ -195,7 +191,7 @@
             map.panTo([lat, lon]);
           }
 
-          updateVisualGuidance(lat, lon, pos.coords.heading);
+          updateGuidance(lat, lon);
         },
         (err) => {
           alert("Erreur GPS : " + err.message);
@@ -215,104 +211,90 @@
       return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
     }
 
-    function getBearing(lat1, lon1, lat2, lon2) {
-      const y = Math.sin((lon2 - lon1) * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180);
-      const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
-                Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos((lon2 - lon1) * Math.PI / 180);
-      return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
-    }
-
-    function updateVisualGuidance(currentLat, currentLon, gpsHeading) {
+    function updateGuidance(currentLat, currentLon) {
       if (targetPoints.length === 0) return;
 
       if (currentTargetIndex >= targetPoints.length) {
         document.getElementById('guidance-panel').style.display = 'flex';
         document.getElementById('guidance-dist').innerText = 'Arrivé !';
         document.getElementById('guidance-next').innerText = 'Tournée terminée';
-        document.getElementById('guidance-instruction').innerText = '🏁 Vous êtes arrivé au dernier point';
+        document.getElementById('guidance-instruction').innerText = '🏁 Tous les points sont validés';
         document.getElementById('guidance-arrow').innerText = '🏁';
-        accessPolyline.setLatLngs([]);
+        routePolyline.setLatLngs([]);
         return;
       }
 
       const nextTarget = targetPoints[currentTargetIndex];
-      
-      // Tracer la ligne de raccordement directe vers l'étape active
-      accessPolyline.setLatLngs([
-        [currentLat, currentLon],
-        [nextTarget.lat, nextTarget.lon]
-      ]);
+      const distDirect = getDistanceMeters(currentLat, currentLon, nextTarget.lat, nextTarget.lon);
 
-      const dist = getDistanceMeters(currentLat, currentLon, nextTarget.lat, nextTarget.lon);
-
-      // Validation automatique dès qu'on arrive à moins de 25 mètres
-      if (dist <= 25 && currentTargetIndex < targetPoints.length - 1) {
+      // Validation automatique si on est à moins de 25m
+      if (distDirect <= 25 && currentTargetIndex < targetPoints.length - 1) {
         currentTargetIndex++;
-        updateVisualGuidance(currentLat, currentLon, gpsHeading);
+        updateGuidance(currentLat, currentLon);
         return;
       }
 
-      // Calcul du cap absolu vers la cible
-      const targetBearing = getBearing(currentLat, currentLon, nextTarget.lat, nextTarget.lon);
-
-      // Détermination du cap du véhicule (via GPS natif ou calcul basé sur la position précédente)
-      let currentHeading = gpsHeading;
-      if ((currentHeading === null || isNaN(currentHeading)) && prevPos) {
-        currentHeading = getBearing(prevPos.lat, prevPos.lon, currentLat, currentLon);
+      // Calcul de l'itinéraire routier via le serveur OSRM (limité à une mise à jour toutes les 4 secondes)
+      const now = Date.now();
+      if (now - lastRouteCalcTime > 4000) {
+        lastRouteCalcTime = now;
+        fetchRoadRoute(currentLat, currentLon, nextTarget.lat, nextTarget.lon, nextTarget.name || `Étape ${currentTargetIndex + 1}`);
       }
+    }
 
-      // Calcul de la direction relative (Gauche / Droite / Tout droit)
-      let instructionText = "Tout droit";
-      let arrow = "⬆️";
+    function fetchRoadRoute(startLat, startLon, endLat, endLon, targetName) {
+      const url = `https://router.project-osrm.org/route/v1/driving/${startLon},${startLat};${endLon},${endLat}?overview=full&geometries=geojson&steps=true`;
 
-      if (currentHeading !== null && !isNaN(currentHeading)) {
-        let relativeAngle = (targetBearing - currentHeading + 360) % 360;
+      fetch(url)
+        .then(res => res.json())
+        .then(data => {
+          if (!data.routes || data.routes.length === 0) return;
 
-        if (relativeAngle > 180) relativeAngle -= 360;
+          const route = data.routes[0];
+          const coordinates = route.geometry.coordinates.map(c => [c[1], c[0]]);
+          
+          // Tracé de l'itinéraire routier sur la carte
+          routePolyline.setLatLngs(coordinates);
 
-        if (relativeAngle >= -22.5 && relativeAngle <= 22.5) {
-          instructionText = "Tout droit";
-          arrow = "⬆️";
-        } else if (relativeAngle > 22.5 && relativeAngle <= 67.5) {
-          instructionText = "Légèrement à droite";
-          arrow = "↗️";
-        } else if (relativeAngle > 67.5 && relativeAngle <= 112.5) {
-          instructionText = "Tournez à droite ➡️";
-          arrow = "➡️";
-        } else if (relativeAngle > 112.5 && relativeAngle <= 157.5) {
-          instructionText = "Serrer fortement à droite";
-          arrow = "↘️";
-        } else if (relativeAngle < -22.5 && relativeAngle >= -67.5) {
-          instructionText = "Légèrement à gauche";
-          arrow = "↖️";
-        } else if (relativeAngle < -67.5 && relativeAngle >= -112.5) {
-          instructionText = "Tournez à gauche ⬅️";
-          arrow = "⬅️";
-        } else if (relativeAngle < -112.5 && relativeAngle >= -157.5) {
-          instructionText = "Serrer fortement à gauche";
-          arrow = "↙️";
-        } else {
-          instructionText = "Faire demi-tour ↩️";
-          arrow = "⬇️";
-        }
-      } else {
-        // Mode boussole absolue par défaut (en l'absence de déplacement initial)
-        if (targetBearing >= 337.5 || targetBearing < 22.5) arrow = '⬆️';
-        else if (targetBearing >= 22.5 && targetBearing < 67.5) arrow = '↗️';
-        else if (targetBearing >= 67.5 && targetBearing < 112.5) arrow = '➡️';
-        else if (targetBearing >= 112.5 && targetBearing < 157.5) arrow = '↘️';
-        else if (targetBearing >= 157.5 && targetBearing < 202.5) arrow = '⬇️';
-        else if (targetBearing >= 202.5 && targetBearing < 247.5) arrow = '↙️';
-        else if (targetBearing >= 247.5 && targetBearing < 292.5) arrow = '⬅️';
-        else if (targetBearing >= 292.5 && targetBearing < 337.5) arrow = '↖️';
-        instructionText = "Cap vers la cible";
-      }
+          const distanceMeters = Math.round(route.distance);
+          const durationMin = Math.round(route.duration / 60);
 
-      document.getElementById('guidance-panel').style.display = 'flex';
-      document.getElementById('guidance-dist').innerText = dist > 1000 ? (dist / 1000).toFixed(1) + ' km' : dist + ' m';
-      document.getElementById('guidance-next').innerText = `Étape ${currentTargetIndex + 1}/${targetPoints.length} : ` + (nextTarget.name || 'Point d\'itinéraire');
-      document.getElementById('guidance-instruction').innerText = instructionText;
-      document.getElementById('guidance-arrow').innerText = arrow;
+          let nextStepText = "Suivez la route";
+          let arrow = "⬆️";
+
+          if (route.legs && route.legs[0].steps && route.legs[0].steps.length > 0) {
+            const step = route.legs[0].steps[0];
+            const type = step.maneuver.type;
+            const modifier = step.maneuver.modifier || "";
+
+            if (modifier.includes("right")) {
+              nextStepText = "Tournez à droite";
+              arrow = "➡️";
+            } else if (modifier.includes("left")) {
+              nextStepText = "Tournez à gauche";
+              arrow = "⬅️";
+            } else if (type === "arrive") {
+              nextStepText = "Vous arrivez au point";
+              arrow = "🎯";
+            } else {
+              nextStepText = "Continuez tout droit";
+              arrow = "⬆️";
+            }
+
+            if (step.name) {
+              nextStepText += ` sur ${step.name}`;
+            }
+          }
+
+          document.getElementById('guidance-panel').style.display = 'flex';
+          document.getElementById('guidance-dist').innerText = distanceMeters > 1000 ? (distanceMeters / 1000).toFixed(1) + ' km' : distanceMeters + ' m';
+          document.getElementById('guidance-next').innerText = `Étape ${currentTargetIndex + 1}/${targetPoints.length} : ${targetName} (${durationMin} min)`;
+          document.getElementById('guidance-instruction').innerText = nextStepText;
+          document.getElementById('guidance-arrow').innerText = arrow;
+        })
+        .catch(err => {
+          console.error("Erreur calcul route:", err);
+        });
     }
 
     function addBinStop() {
@@ -359,7 +341,7 @@
         map.removeLayer(currentPositionMarker);
         currentPositionMarker = null;
       }
-      accessPolyline.setLatLngs([]);
+      routePolyline.setLatLngs([]);
       document.getElementById('guidance-panel').style.display = 'none';
     }
 
@@ -467,7 +449,7 @@
       }
 
       currentBins = [...(run.bins || [])];
-      alert(`Tournée "${run.name}" chargée. Le guidage pointe vers l'Étape 1.`);
+      alert(`Tournée "${run.name}" chargée. L'itinéraire routier s'affichera dès l'activation du GPS.`);
     }
 
     function deleteRun(id) {
