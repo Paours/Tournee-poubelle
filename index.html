@@ -113,11 +113,17 @@
     </div>
   </div>
 
+  <!-- Audio silencieux pour bloquer la mise en veille du processus du navigateur -->
+  <audio id="silent-audio" loop preload="auto">
+    <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=" type="audio/wav">
+  </audio>
+
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
   <script>
     let map, refPolyline, livePolyline, routePolyline, currentPositionMarker;
     let watchId = null;
+    let wakeLock = null;
     let currentPath = [];
     let currentBins = [];
     let binMarkersOnMap = [];
@@ -134,9 +140,33 @@
 
     refPolyline = L.polyline([], { color: '#0066ff', weight: 6, opacity: 0.7 }).addTo(map);
     livePolyline = L.polyline([], { color: '#ff0000', weight: 5 }).addTo(map);
-    
-    // Trajet routier réel jusqu'à l'étape
     routePolyline = L.polyline([], { color: '#8a2be2', weight: 6, opacity: 0.9 }).addTo(map);
+
+    async function enableBackgroundKeepAlive() {
+      const silentAudio = document.getElementById('silent-audio');
+      if (silentAudio) {
+        silentAudio.play().catch(e => console.log("Audio d'arrière-plan bloqué :", e));
+      }
+
+      try {
+        if ('wakeLock' in navigator) {
+          wakeLock = await navigator.wakeLock.request('screen');
+        }
+      } catch (err) {
+        console.log("WakeLock non supporté.");
+      }
+    }
+
+    function disableBackgroundKeepAlive() {
+      const silentAudio = document.getElementById('silent-audio');
+      if (silentAudio) {
+        silentAudio.pause();
+      }
+      if (wakeLock !== null) {
+        wakeLock.release();
+        wakeLock = null;
+      }
+    }
 
     function switchTab(tabId) {
       document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -159,6 +189,8 @@
         return;
       }
       
+      enableBackgroundKeepAlive();
+
       currentPath = [];
       livePolyline.setLatLngs([]);
       
@@ -227,14 +259,12 @@
       const nextTarget = targetPoints[currentTargetIndex];
       const distDirect = getDistanceMeters(currentLat, currentLon, nextTarget.lat, nextTarget.lon);
 
-      // Validation automatique si on est à moins de 25m
       if (distDirect <= 25 && currentTargetIndex < targetPoints.length - 1) {
         currentTargetIndex++;
         updateGuidance(currentLat, currentLon);
         return;
       }
 
-      // Calcul de l'itinéraire routier via le serveur OSRM (limité à une mise à jour toutes les 4 secondes)
       const now = Date.now();
       if (now - lastRouteCalcTime > 4000) {
         lastRouteCalcTime = now;
@@ -253,7 +283,6 @@
           const route = data.routes[0];
           const coordinates = route.geometry.coordinates.map(c => [c[1], c[0]]);
           
-          // Tracé de l'itinéraire routier sur la carte
           routePolyline.setLatLngs(coordinates);
 
           const distanceMeters = Math.round(route.distance);
@@ -350,6 +379,9 @@
         navigator.geolocation.clearWatch(watchId);
         watchId = null;
       }
+      
+      disableBackgroundKeepAlive();
+
       document.getElementById('startBtn').disabled = false;
       document.getElementById('stopBtn').disabled = true;
       document.getElementById('addBinBtn').disabled = true;
