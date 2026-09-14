@@ -113,15 +113,17 @@
     </div>
   </div>
 
-  <!-- Audio silencieux pour bloquer la mise en veille du processus du navigateur -->
   <audio id="silent-audio" loop preload="auto">
     <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=" type="audio/wav">
   </audio>
 
+  <!-- Librairies JS : Leaflet + Plugin d'affichage de flèches sur Polyline -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet-polylinedecorator@1.6.0/dist/leaflet.polylineDecorator.js"></script>
 
   <script>
     let map, refPolyline, livePolyline, routePolyline, currentPositionMarker;
+    let arrowDecorator = null;
     let watchId = null;
     let wakeLock = null;
     let currentPath = [];
@@ -370,6 +372,10 @@
         map.removeLayer(currentPositionMarker);
         currentPositionMarker = null;
       }
+      if (arrowDecorator) {
+        map.removeLayer(arrowDecorator);
+        arrowDecorator = null;
+      }
       routePolyline.setLatLngs([]);
       document.getElementById('guidance-panel').style.display = 'none';
     }
@@ -467,6 +473,24 @@
       const pts = run.points.map(p => [p.lat, p.lon]);
       refPolyline.setLatLngs(pts);
 
+      // Ajout des flèches d'orientation répétées tous les 50 pixels le long du tracé bleu
+      if (pts.length > 1) {
+        arrowDecorator = L.polylineDecorator(refPolyline, {
+          patterns: [
+            {
+              offset: 25,
+              repeat: 50,
+              symbol: L.Symbol.arrowHead({
+                pixelSize: 10,
+                headAngle: 60,
+                polygon: false,
+                pathOptions: { stroke: true, color: '#002699', weight: 2.5 }
+              })
+            }
+          ]
+        }).addTo(map);
+      }
+
       currentTargetIndex = 0;
 
       if (run.bins && run.bins.length > 0) {
@@ -481,7 +505,7 @@
       }
 
       currentBins = [...(run.bins || [])];
-      alert(`Tournée "${run.name}" chargée. L'itinéraire routier s'affichera dès l'activation du GPS.`);
+      alert(`Tournée "${run.name}" chargée avec flèches d'orientation.`);
     }
 
     function deleteRun(id) {
