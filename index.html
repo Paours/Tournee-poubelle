@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Navigation Tournée Pro - GPS Temps Réel</title>
+  <title>Navigation Tournée Pro - Routage Routier</title>
   
   <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
   
@@ -110,7 +110,7 @@
       <div id="guidance-arrow">⬆️</div>
       <div id="guidance-text">
         <strong id="guidance-dist">--- m</strong>
-        <span id="guidance-instruction">Cliquez sur "Démarrer" pour lancer le GPS</span>
+        <span id="guidance-instruction">Lancer le GPS pour la navigation routière</span>
       </div>
     </div>
 
@@ -147,12 +147,13 @@
     let currentPath = [];
     let currentBins = [];
     let loadedBinMarkers = [];
-    let activeRun = null; // Tournée en cours d'exécution
-    let currentTargetIndex = 0; // Prochain arrêt / point visé
+    let activeRun = null;
+    let currentTargetIndex = 0;
     let lastKnownPos = null;
     let followUser = true;
     let userMarkerEl, userMarker;
     let currentHeading = 0;
+    let lastRouteFetchTime = 0;
     
     let savedRuns = JSON.parse(localStorage.getItem('my_runs') || '[]');
 
@@ -194,7 +195,7 @@
         'paint': { 'line-color': '#ea4335', 'line-width': 6 }
       });
 
-      // Tracé de la Tournée à Suivre (Bleu)
+      // Tracé Tournée Référence (Bleu)
       map.addSource('ref-path', {
         'type': 'geojson',
         'data': { 'type': 'Feature', 'geometry': { 'type': 'LineString', 'coordinates': [] } }
@@ -207,7 +208,7 @@
         'paint': { 'line-color': '#1a73e8', 'line-width': 8, 'line-opacity': 0.8 }
       });
 
-      // Ligne Pointillée pour rejoindre le tracé ou l'arrêt (Jaune)
+      // Trajet d'Approche par la Route Réelle (Orange)
       map.addSource('approach-path', {
         'type': 'geojson',
         'data': { 'type': 'Feature', 'geometry': { 'type': 'LineString', 'coordinates': [] } }
@@ -216,25 +217,14 @@
         'id': 'approach-path-layer',
         'type': 'line',
         'source': 'approach-path',
-        'paint': { 'line-color': '#fbbc04', 'line-width': 5, 'line-dasharray': [2, 2] }
+        'layout': { 'line-join': 'round', 'line-cap': 'round' },
+        'paint': { 'line-color': '#ff6d00', 'line-width': 6 }
       });
 
-      // Flèche GPS Utilisateur
       userMarkerEl = document.createElement('div');
       userMarkerEl.className = 'user-arrow-marker';
       userMarker = new maplibregl.Marker({ element: userMarkerEl }).setLngLat([0, 0]).addTo(map);
     });
-
-    // Calculs de géodésie
-    function getDistanceMeters(lat1, lon1, lat2, lon2) {
-      const R = 6371000;
-      const dLat = (lat2 - lat1) * Math.PI / 180;
-      const dLon = (lon2 - lon1) * Math.PI / 180;
-      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                Math.sin(dLon/2) * Math.sin(dLon/2);
-      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    }
 
     function calculateBearing(lat1, lon1, lat2, lon2) {
       const toRad = deg => deg * Math.PI / 180;
@@ -259,56 +249,79 @@
       return "⬇️";
     }
 
-    function updateGuidance(currentLat, currentLon) {
-      if (!activeRun) {
-        document.getElementById('guidance-dist').innerText = "---";
-        document.getElementById('guidance-instruction').innerText = "Aucune tournée chargée";
-        return;
+    // Calcul de route par le réseau routier OpenStreetMap (OSRM)
+    async function fetchRoadRoute(startLon, startLat, endLon, endLat) {
+      const url = `https://router.project-osrm.org/route/v1/driving/${startLon},${startLat};${endLon},${endLat}?overview=full&geometries=geojson`;
+      try {
+        const response = await fetch(url);
+        const data = await response.json();
+        if (data.routes && data.routes.length > 0) {
+          return {
+            coordinates: data.routes[0].geometry.coordinates,
+            distance: data.routes[0].distance // Distance exacte par la route en mètres
+          };
+        }
+      } catch (err) {
+        console.warn("Erreur serveur routage :", err);
       }
+      return null;
+    }
+
+    async function updateGuidance(currentLat, currentLon) {
+      if (!activeRun) return;
 
       let targetLat, targetLon, targetName;
 
-      // Priorité 1 : S'il y a des arrêts enregistrés
       if (activeRun.bins && activeRun.bins.length > currentTargetIndex) {
         const bin = activeRun.bins[currentTargetIndex];
         targetLat = bin.lat;
         targetLon = bin.lon;
         targetName = `Arrêt N°${bin.number || (currentTargetIndex + 1)} : ${bin.name}`;
       } else if (activeRun.points && activeRun.points.length > 0) {
-        // Priorité 2 : Suivre le 1er point de départ du tracé
         const firstPoint = activeRun.points[0];
         targetLat = Array.isArray(firstPoint) ? (firstPoint[0] > 10 ? firstPoint[0] : firstPoint[1]) : firstPoint.lat;
         targetLon = Array.isArray(firstPoint) ? (firstPoint[0] > 10 ? firstPoint[1] : firstPoint[0]) : firstPoint.lon;
-        targetName = "Rejoindre le départ du tracé";
+        targetName = "Départ de la tournée";
       } else {
         return;
       }
 
-      const dist = getDistanceMeters(currentLat, currentLon, targetLat, targetLon);
-      const bearing = calculateBearing(currentLat, currentLon, targetLat, targetLon);
-      const arrow = getDirectionArrow(currentHeading, bearing);
+      // Limite les appels réseau à une fois toutes les 4 secondes pour préserver la batterie
+      const now = Date.now();
+      if (now - lastRouteFetchTime > 4000) {
+        lastRouteFetchTime = now;
+        
+        const roadData = await fetchRoadRoute(currentLon, currentLat, targetLon, targetLat);
+        
+        if (roadData) {
+          // Affichage du tracé routier réel (ligne orange)
+          if (map.getSource('approach-path')) {
+            map.getSource('approach-path').setData({
+              'type': 'Feature',
+              'geometry': { 'type': 'LineString', 'coordinates': roadData.coordinates }
+            });
+          }
 
-      // Tracer le trait d'approche
-      if (map.getSource('approach-path')) {
-        map.getSource('approach-path').setData({
-          'type': 'Feature',
-          'geometry': { 'type': 'LineString', 'coordinates': [[currentLon, currentLat], [targetLon, targetLat]] }
-        });
-      }
+          // Orientation du 1er segment de route
+          const firstNextPt = roadData.coordinates[1] || [targetLon, targetLat];
+          const bearing = calculateBearing(currentLat, currentLon, firstNextPt[1], firstNextPt[0]);
+          const arrow = getDirectionArrow(currentHeading, bearing);
 
-      // Mise à jour de l'IHM
-      document.getElementById('guidance-arrow').innerText = arrow;
-      document.getElementById('guidance-dist').innerText = dist > 1000 ? `${(dist/1000).toFixed(1)} km` : `${Math.round(dist)} m`;
-      document.getElementById('guidance-instruction').innerText = targetName;
+          const dist = roadData.distance;
+          document.getElementById('guidance-arrow').innerText = arrow;
+          document.getElementById('guidance-dist').innerText = dist > 1000 ? `${(dist/1000).toFixed(1)} km` : `${Math.round(dist)} m`;
+          document.getElementById('guidance-instruction').innerText = targetName;
 
-      // Passage automatique à l'arrêt suivant si on est arrivé à proximité (< 20m)
-      if (dist < 20 && activeRun.bins && activeRun.bins.length > currentTargetIndex) {
-        if ('speechSynthesis' in window) {
-          let msg = new SpeechSynthesisUtterance(`Vous êtes arrivé à l'arrêt ${activeRun.bins[currentTargetIndex].number}`);
-          msg.lang = 'fr-FR';
-          window.speechSynthesis.speak(msg);
+          // Détection d'arrivée à l'arrêt (< 20m)
+          if (dist < 20 && activeRun.bins && activeRun.bins.length > currentTargetIndex) {
+            if ('speechSynthesis' in window) {
+              let msg = new SpeechSynthesisUtterance(`Arrivé à l'arrêt ${activeRun.bins[currentTargetIndex].number}`);
+              msg.lang = 'fr-FR';
+              window.speechSynthesis.speak(msg);
+            }
+            currentTargetIndex++;
+          }
         }
-        currentTargetIndex++;
       }
     }
 
@@ -474,7 +487,7 @@
         updateGuidance(lastKnownPos.lat, lastKnownPos.lon);
       }
 
-      alert(`Tournée "${run.name}" chargée ! LANCEZ LE GPS avec "Démarrer" pour commencer le guidage.`);
+      alert(`Tournée "${run.name}" chargée ! L'itinéraire par la route va s'afficher dès que vous cliquerez sur "Démarrer".`);
     }
 
     function deleteRun(id) {
