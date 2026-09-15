@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Navigation Tournée Pro</title>
   
-  <!-- Moteur Vectoriel 3D MapLibre (Style Google Maps) -->
+  <!-- Moteur Vectoriel 3D MapLibre -->
   <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
   
   <style>
@@ -21,7 +21,6 @@
 
     #map { flex: 1; width: 100%; position: absolute; top: 0; bottom: 0; left: 0; right: 0; }
     
-    /* Panneau de guidage Style Google Maps */
     #guidance-panel {
       position: absolute;
       top: 12px;
@@ -41,7 +40,6 @@
     #guidance-text strong { display: block; font-size: 1.2rem; }
     #guidance-text span { font-size: 0.85rem; opacity: 0.9; }
 
-    /* Bouton Recentrer la carte */
     #recenter-btn {
       position: absolute;
       bottom: 150px;
@@ -78,10 +76,8 @@
     
     .btn-sm { padding: 8px 12px; border: none; border-radius: 6px; font-weight: bold; color: white; cursor: pointer; font-size: 0.8rem; text-decoration: none; display: inline-block; }
     .bg-blue { background: #1a73e8; }
-    .bg-green { background: #1e8e3e; }
     .bg-red { background: #d93025; }
 
-    /* Curseur Véhicule Flèche GPS */
     .user-arrow-marker {
       width: 40px;
       height: 40px;
@@ -89,6 +85,17 @@
       background-size: cover;
       filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.4));
       transition: transform 0.2s ease-out;
+    }
+
+    .bin-marker-label {
+      background: #e37400;
+      color: white;
+      padding: 4px 8px;
+      border-radius: 12px;
+      font-weight: bold;
+      font-size: 12px;
+      border: 2px solid white;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
     }
   </style>
 </head>
@@ -140,6 +147,7 @@
     let wakeLock = null;
     let currentPath = [];
     let currentBins = [];
+    let loadedBinMarkers = [];
     let lastKnownPos = null;
     let followUser = true;
     let userMarkerEl, userMarker;
@@ -147,17 +155,15 @@
     
     let savedRuns = JSON.parse(localStorage.getItem('my_runs') || '[]');
 
-    // Initialisation de la carte Vectorielle 3D Style Google Maps
     map = new maplibregl.Map({
       container: 'map',
       style: 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
-      center: [1.888334, 46.603354],
-      zoom: 16,
-      pitch: 50, // Inclinaison 3D Google Maps
+      center: [-1.5, 48.4],
+      zoom: 15,
+      pitch: 50,
       bearing: 0
     });
 
-    // Détection des mouvements de carte par l'utilisateur
     map.on('dragstart', () => { disableFollowMode(); });
 
     function enableFollowMode() {
@@ -187,7 +193,7 @@
         'paint': { 'line-color': '#ea4335', 'line-width': 6 }
       });
 
-      // Couche Tracé de Référence / Tournée Chargée (Bleue)
+      // Couche Tracé Chargé / Tournée Référence (Bleu)
       map.addSource('ref-path', {
         'type': 'geojson',
         'data': { 'type': 'Feature', 'geometry': { 'type': 'LineString', 'coordinates': [] } }
@@ -197,10 +203,9 @@
         'type': 'line',
         'source': 'ref-path',
         'layout': { 'line-join': 'round', 'line-cap': 'round' },
-        'paint': { 'line-color': '#1a73e8', 'line-width': 8, 'line-opacity': 0.7 }
+        'paint': { 'line-color': '#1a73e8', 'line-width': 8, 'line-opacity': 0.8 }
       });
 
-      // Curseur Flèche Camion
       userMarkerEl = document.createElement('div');
       userMarkerEl.className = 'user-arrow-marker';
       userMarker = new maplibregl.Marker({ element: userMarkerEl }).setLngLat([0, 0]).addTo(map);
@@ -268,7 +273,6 @@
           lastKnownPos = { lat, lon, time: new Date().toISOString() };
           currentPath.push([lon, lat]);
 
-          // Mise à jour du tracé rouge
           if (map.getSource('live-path')) {
             map.getSource('live-path').setData({
               'type': 'Feature',
@@ -276,11 +280,9 @@
             });
           }
 
-          // Positionnement de la flèche
           userMarker.setLngLat([lon, lat]);
           userMarkerEl.style.transform = `rotate(${currentHeading}deg)`;
 
-          // Mode Google Maps : Suivi Caméra Dynamique
           if (followUser) {
             map.easeTo({
               center: [lon, lat],
@@ -314,12 +316,20 @@
       const bin = { number: num, name: note, lat: lastKnownPos.lat, lon: lastKnownPos.lon, time: new Date().toLocaleTimeString() };
       currentBins.push(bin);
 
-      // Création Marker Arrêt
+      addBinMarkerToMap(bin);
+    }
+
+    function addBinMarkerToMap(bin) {
       const el = document.createElement('div');
-      el.className = 'card';
-      el.style.cssText = 'background:#e37400; color:white; padding:4px 8px; border-radius:12px; font-weight:bold; font-size:12px; border:2px solid white;';
-      el.innerText = num;
-      new maplibregl.Marker({ element: el }).setLngLat([bin.lon, bin.lat]).addTo(map);
+      el.className = 'bin-marker-label';
+      el.innerText = bin.number || '🗑️';
+      
+      const m = new maplibregl.Marker({ element: el })
+        .setLngLat([bin.lon, bin.lat])
+        .setPopup(new maplibregl.Popup().setHTML(`<b>${bin.name}</b><br>${bin.time || ''}`))
+        .addTo(map);
+        
+      loadedBinMarkers.push(m);
     }
 
     function saveCurrentRun() {
@@ -348,12 +358,28 @@
           <h3>${run.name}</h3>
           <p><b>Date:</b> ${run.date} | <b>Arrêts:</b> ${run.bins ? run.bins.length : 0}</p>
           <div style="display:flex; gap:8px;">
-            <button class="btn-sm bg-blue" onclick="loadRunOnMap(${run.id})">🗺️ Suivre cette tournée</button>
+            <button class="btn-sm bg-blue" onclick="loadRunOnMap(${run.id})">🗺️ Charger & Suivre</button>
             <button class="btn-sm bg-red" onclick="deleteRun(${run.id})">Supprimer</button>
           </div>
         `;
         container.appendChild(card);
       });
+    }
+
+    // Normalisation des coordonnées pour corriger l'affichage quel que soit l'ancien format
+    function normalizePoints(rawPoints) {
+      if (!rawPoints || rawPoints.length === 0) return [];
+      
+      return rawPoints.map(p => {
+        if (Array.isArray(p)) {
+          // Si [lat, lon] ou [lon, lat]
+          return p[0] > 10 ? [p[1], p[0]] : [p[0], p[1]];
+        } else if (p && typeof p === 'object') {
+          // Si {lat, lon}
+          return [p.lon, p.lat];
+        }
+        return null;
+      }).filter(p => p !== null);
     }
 
     function loadRunOnMap(id) {
@@ -362,17 +388,27 @@
 
       switchTab('tab-carte');
 
-      if (map.getSource('ref-path')) {
+      // Nettoyage des anciens marqueurs
+      loadedBinMarkers.forEach(m => m.remove());
+      loadedBinMarkers = [];
+
+      const coords = normalizePoints(run.points);
+
+      if (coords.length > 0 && map.getSource('ref-path')) {
         map.getSource('ref-path').setData({
           'type': 'Feature',
-          'geometry': { 'type': 'LineString', 'coordinates': run.points }
+          'geometry': { 'type': 'LineString', 'coordinates': coords }
         });
+
+        // Zoome et recentre la carte sur le début de la tournée
+        map.flyTo({ center: coords[0], zoom: 16, pitch: 45 });
       }
 
-      if (run.points.length > 0) {
-        map.flyTo({ center: run.points[0], zoom: 16 });
+      if (run.bins && run.bins.length > 0) {
+        run.bins.forEach(bin => addBinMarkerToMap(bin));
       }
-      alert(`Tournée "${run.name}" chargée sur la carte.`);
+
+      alert(`Tournée "${run.name}" chargée avec succès (${coords.length} points).`);
     }
 
     function deleteRun(id) {
