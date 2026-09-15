@@ -3,78 +3,92 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Gestion Tournées Éboueur</title>
+  <title>Navigation Tournée Pro</title>
   
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="manifest" href="data:application/manifest+json,{%22name%22:%22Gestion%20Tournees%22,%22short_name%22:%22Tournees%22,%22start_url%22:%22.%22,%22display%22:%22standalone%22,%22background_color%22:%22%23ffffff%22,%22theme_color%22:%22%23007bff%22}">
-
+  <!-- Moteur Vectoriel 3D MapLibre (Style Google Maps) -->
+  <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+  
   <style>
     * { box-sizing: border-box; }
-    body, html { margin: 0; padding: 0; height: 100%; width: 100%; font-family: system-ui, -apple-system, sans-serif; display: flex; flex-direction: column; background: #f4f4f9; }
+    body, html { margin: 0; padding: 0; height: 100%; width: 100%; font-family: system-ui, -apple-system, sans-serif; display: flex; flex-direction: column; background: #1a1a1a; }
     
-    .tabs { display: flex; background: #222; color: white; }
-    .tab-btn { flex: 1; padding: 15px 5px; border: none; background: none; color: #aaa; font-weight: bold; font-size: 0.9rem; cursor: pointer; }
-    .tab-btn.active { color: white; background: #007bff; border-bottom: 4px solid #fff; }
+    .tabs { display: flex; background: #111; color: white; z-index: 10; }
+    .tab-btn { flex: 1; padding: 14px 5px; border: none; background: none; color: #888; font-weight: bold; font-size: 0.9rem; cursor: pointer; }
+    .tab-btn.active { color: white; background: #1a73e8; border-bottom: 3px solid #fff; }
     
-    .tab-content { display: none; flex: 1; flex-direction: column; height: calc(100% - 50px); position: relative; }
+    .tab-content { display: none; flex: 1; flex-direction: column; height: calc(100% - 48px); position: relative; }
     .tab-content.active { display: flex; }
 
-    #map { flex: 1; width: 100%; z-index: 1; }
+    #map { flex: 1; width: 100%; position: absolute; top: 0; bottom: 0; left: 0; right: 0; }
     
+    /* Panneau de guidage Style Google Maps */
     #guidance-panel {
       position: absolute;
-      top: 10px;
-      left: 10px;
-      right: 10px;
-      z-index: 1000;
-      background: rgba(0, 0, 0, 0.9);
+      top: 12px;
+      left: 12px;
+      right: 12px;
+      z-index: 10;
+      background: #0d62d2;
       color: white;
-      padding: 12px 15px;
-      border-radius: 8px;
+      padding: 14px;
+      border-radius: 12px;
       display: none;
       align-items: center;
       gap: 12px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
     }
-    #guidance-arrow { font-size: 2.2rem; line-height: 1; }
-    #guidance-text { flex: 1; }
-    #guidance-text strong { display: block; font-size: 1.1rem; color: #ffca28; }
-    #guidance-text span { font-size: 0.85rem; color: #ddd; }
-    #guidance-instruction { font-size: 0.95rem; font-weight: bold; color: #28a745; margin-top: 2px; }
+    #guidance-arrow { font-size: 2.2rem; }
+    #guidance-text strong { display: block; font-size: 1.2rem; }
+    #guidance-text span { font-size: 0.85rem; opacity: 0.9; }
 
-    .controls { padding: 10px; background: white; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 -2px 10px rgba(0,0,0,0.1); z-index: 2; }
+    /* Bouton Recentrer la carte */
+    #recenter-btn {
+      position: absolute;
+      bottom: 150px;
+      right: 15px;
+      z-index: 10;
+      background: white;
+      border: none;
+      border-radius: 50%;
+      width: 48px;
+      height: 48px;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.3);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.4rem;
+      cursor: pointer;
+    }
+
+    .controls { position: absolute; bottom: 0; left: 0; right: 0; padding: 12px; background: rgba(255,255,255,0.95); backdrop-filter: blur(10px); display: flex; flex-direction: column; gap: 8px; z-index: 10; border-top-left-radius: 16px; border-top-right-radius: 16px; }
     .btn-row { display: flex; gap: 8px; }
     
-    button.action-btn { flex: 1; padding: 14px 5px; font-size: 0.95rem; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; color: white; }
-    .btn-start { background-color: #28a745; }
-    .btn-stop { background-color: #dc3545; }
-    .btn-save { background-color: #17a2b8; }
-    .btn-bin { background-color: #fd7e14; font-size: 1.05rem; }
+    button.action-btn { flex: 1; padding: 14px 5px; font-size: 0.95rem; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; color: white; }
+    .btn-start { background-color: #1e8e3e; }
+    .btn-stop { background-color: #d93025; }
+    .btn-save { background-color: #1a73e8; }
+    .btn-bin { background-color: #e37400; font-size: 1rem; }
 
-    button:disabled { background-color: #cccccc !important; cursor: not-allowed; }
+    button:disabled { background-color: #dadce0 !important; color: #70757a !important; cursor: not-allowed; }
 
-    .list-container { padding: 15px; overflow-y: auto; flex: 1; }
-    .card { background: white; padding: 15px; border-radius: 8px; margin-bottom: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.08); }
-    .card h3 { margin: 0 0 8px 0; font-size: 1.1rem; }
-    .card p { margin: 0 0 10px 0; color: #666; font-size: 0.85rem; }
-    .card-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+    .list-container { padding: 15px; overflow-y: auto; flex: 1; background: #f8f9fa; }
+    .card { background: white; padding: 15px; border-radius: 10px; margin-bottom: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+    .card h3 { margin: 0 0 6px 0; }
+    .card p { margin: 0 0 10px 0; color: #5f6368; font-size: 0.85rem; }
     
-    .btn-sm { padding: 8px 12px; border: none; border-radius: 4px; font-weight: bold; color: white; cursor: pointer; font-size: 0.8rem; text-decoration: none; display: inline-block; }
-    .bg-blue { background: #007bff; }
-    .bg-green { background: #28a745; }
-    .bg-gmaps { background: #4285F4; }
-    .bg-red { background: #dc3545; }
+    .btn-sm { padding: 8px 12px; border: none; border-radius: 6px; font-weight: bold; color: white; cursor: pointer; font-size: 0.8rem; text-decoration: none; display: inline-block; }
+    .bg-blue { background: #1a73e8; }
+    .bg-green { background: #1e8e3e; }
+    .bg-red { background: #d93025; }
 
-    .bin-icon {
-      background-color: #fd7e14;
-      color: white;
-      border: 2px solid white;
-      border-radius: 50%;
-      font-weight: bold;
-      text-align: center;
-      line-height: 24px;
-      font-size: 12px;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.4);
+    /* Curseur Véhicule Flèche GPS */
+    .user-arrow-marker {
+      width: 40px;
+      height: 40px;
+      background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%231a73e8"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>');
+      background-size: cover;
+      filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.4));
+      transition: transform 0.2s ease-out;
     }
   </style>
 </head>
@@ -90,12 +104,12 @@
       <div id="guidance-arrow">⬆️</div>
       <div id="guidance-text">
         <strong id="guidance-dist">--- m</strong>
-        <span id="guidance-next">En attente du GPS...</span>
-        <div id="guidance-instruction">---</div>
+        <span id="guidance-instruction">En attente du GPS...</span>
       </div>
     </div>
 
     <div id="map"></div>
+    <button id="recenter-btn" onclick="enableFollowMode()">🎯</button>
     
     <div class="controls">
       <button id="addBinBtn" class="action-btn btn-bin" onclick="addBinStop()" disabled>🗑️ + Enregistrer Poubelle / Arrêt</button>
@@ -118,61 +132,95 @@
     <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=" type="audio/wav">
   </audio>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://unpkg.com/leaflet-polylinedecorator@1.6.0/dist/leaflet.polylineDecorator.js"></script>
+  <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
 
   <script>
-    let map, refPolyline, livePolyline, routePolyline, currentPositionMarker;
-    let arrowDecorator = null;
+    let map;
     let watchId = null;
     let wakeLock = null;
     let currentPath = [];
     let currentBins = [];
-    let binMarkersOnMap = [];
     let lastKnownPos = null;
-    let lastRouteCalcTime = 0;
-    
-    let targetPoints = [];
-    let currentTargetIndex = 0;
+    let followUser = true;
+    let userMarkerEl, userMarker;
+    let currentHeading = 0;
     
     let savedRuns = JSON.parse(localStorage.getItem('my_runs') || '[]');
 
-    map = L.map('map').setView([46.603354, 1.888334], 6);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+    // Initialisation de la carte Vectorielle 3D Style Google Maps
+    map = new maplibregl.Map({
+      container: 'map',
+      style: 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
+      center: [1.888334, 46.603354],
+      zoom: 16,
+      pitch: 50, // Inclinaison 3D Google Maps
+      bearing: 0
+    });
 
-    refPolyline = L.polyline([], { color: '#0066ff', weight: 6, opacity: 0.7 }).addTo(map);
-    livePolyline = L.polyline([], { color: '#ff0000', weight: 5 }).addTo(map);
-    routePolyline = L.polyline([], { color: '#8a2be2', weight: 6, opacity: 0.9 }).addTo(map);
+    // Détection des mouvements de carte par l'utilisateur
+    map.on('dragstart', () => { disableFollowMode(); });
+
+    function enableFollowMode() {
+      followUser = true;
+      document.getElementById('recenter-btn').style.display = 'none';
+      if (lastKnownPos) {
+        map.flyTo({ center: [lastKnownPos.lon, lastKnownPos.lat], zoom: 18, pitch: 55, bearing: currentHeading });
+      }
+    }
+
+    function disableFollowMode() {
+      followUser = false;
+      document.getElementById('recenter-btn').style.display = 'flex';
+    }
+
+    map.on('load', () => {
+      // Couche Tracé Réalisé (Rouge)
+      map.addSource('live-path', {
+        'type': 'geojson',
+        'data': { 'type': 'Feature', 'geometry': { 'type': 'LineString', 'coordinates': [] } }
+      });
+      map.addLayer({
+        'id': 'live-path-layer',
+        'type': 'line',
+        'source': 'live-path',
+        'layout': { 'line-join': 'round', 'line-cap': 'round' },
+        'paint': { 'line-color': '#ea4335', 'line-width': 6 }
+      });
+
+      // Couche Tracé de Référence / Tournée Chargée (Bleue)
+      map.addSource('ref-path', {
+        'type': 'geojson',
+        'data': { 'type': 'Feature', 'geometry': { 'type': 'LineString', 'coordinates': [] } }
+      });
+      map.addLayer({
+        'id': 'ref-path-layer',
+        'type': 'line',
+        'source': 'ref-path',
+        'layout': { 'line-join': 'round', 'line-cap': 'round' },
+        'paint': { 'line-color': '#1a73e8', 'line-width': 8, 'line-opacity': 0.7 }
+      });
+
+      // Curseur Flèche Camion
+      userMarkerEl = document.createElement('div');
+      userMarkerEl.className = 'user-arrow-marker';
+      userMarker = new maplibregl.Marker({ element: userMarkerEl }).setLngLat([0, 0]).addTo(map);
+    });
 
     async function enableBackgroundKeepAlive() {
       const silentAudio = document.getElementById('silent-audio');
-      if (silentAudio) {
-        silentAudio.play().catch(e => console.log("Audio d'arrière-plan bloqué :", e));
-      }
+      if (silentAudio) silentAudio.play().catch(e => {});
 
       try {
         if ('wakeLock' in navigator) {
           wakeLock = await navigator.wakeLock.request('screen');
-          document.addEventListener('visibilitychange', async () => {
-            if (wakeLock !== null && document.visibilityState === 'visible') {
-              wakeLock = await navigator.wakeLock.request('screen');
-            }
-          });
         }
-      } catch (err) {
-        console.log("WakeLock non supporté.");
-      }
+      } catch (err) {}
     }
 
     function disableBackgroundKeepAlive() {
       const silentAudio = document.getElementById('silent-audio');
-      if (silentAudio) {
-        silentAudio.pause();
-      }
-      if (wakeLock !== null) {
-        wakeLock.release();
-        wakeLock = null;
-      }
+      if (silentAudio) silentAudio.pause();
+      if (wakeLock) { wakeLock.release(); wakeLock = null; }
     }
 
     function switchTab(tabId) {
@@ -182,35 +230,29 @@
       document.getElementById(tabId).classList.add('active');
       document.getElementById('btn-' + tabId).classList.add('active');
       
-      if(tabId === 'tab-carte') {
-        setTimeout(() => { map.invalidateSize(); }, 200);
-      }
-      if(tabId === 'tab-historique') {
-        renderHistory();
-      }
+      if(tabId === 'tab-carte') setTimeout(() => { map.resize(); }, 200);
+      if(tabId === 'tab-historique') renderHistory();
+    }
+
+    function calculateBearing(lat1, lon1, lat2, lon2) {
+      const toRad = deg => deg * Math.PI / 180;
+      const toDeg = rad => rad * 180 / Math.PI;
+      const dLon = toRad(lon2 - lon1);
+      const y = Math.sin(dLon) * Math.cos(toRad(lat2));
+      const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) - Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
+      return (toDeg(Math.atan2(y, x)) + 360) % 360;
     }
 
     function startTracking() {
-      if (!navigator.geolocation) {
-        alert("GPS non supporté sur cet appareil.");
-        return;
-      }
+      if (!navigator.geolocation) return alert("GPS non supporté");
       
       enableBackgroundKeepAlive();
-
       currentPath = [];
-      livePolyline.setLatLngs([]);
       
       document.getElementById('startBtn').disabled = true;
       document.getElementById('stopBtn').disabled = false;
       document.getElementById('addBinBtn').disabled = false;
       document.getElementById('saveBtn').disabled = true;
-
-      const gpsOptions = {
-        enableHighAccuracy: true,
-        maximumAge: 0,
-        timeout: 5000
-      };
 
       watchId = navigator.geolocation.watchPosition(
         (pos) => {
@@ -218,214 +260,75 @@
 
           const lat = pos.coords.latitude;
           const lon = pos.coords.longitude;
-          
+
           if (lastKnownPos) {
-            const distSinceLast = getDistanceMeters(lastKnownPos.lat, lastKnownPos.lon, lat, lon);
-            if (distSinceLast < 3) return;
+            currentHeading = pos.coords.heading || calculateBearing(lastKnownPos.lat, lastKnownPos.lon, lat, lon);
           }
 
           lastKnownPos = { lat, lon, time: new Date().toISOString() };
-          currentPath.push(lastKnownPos);
-          livePolyline.addLatLng([lat, lon]);
+          currentPath.push([lon, lat]);
 
-          if (!currentPositionMarker) {
-            currentPositionMarker = L.circleMarker([lat, lon], {
-              radius: 9,
-              fillColor: '#007bff',
-              color: '#ffffff',
-              weight: 3,
-              opacity: 1,
-              fillOpacity: 0.9
-            }).addTo(map);
-            map.setView([lat, lon], 17);
-          } else {
-            currentPositionMarker.setLatLng([lat, lon]);
-            map.panTo([lat, lon]);
+          // Mise à jour du tracé rouge
+          if (map.getSource('live-path')) {
+            map.getSource('live-path').setData({
+              'type': 'Feature',
+              'geometry': { 'type': 'LineString', 'coordinates': currentPath }
+            });
           }
 
-          updateGuidance(lat, lon);
+          // Positionnement de la flèche
+          userMarker.setLngLat([lon, lat]);
+          userMarkerEl.style.transform = `rotate(${currentHeading}deg)`;
+
+          // Mode Google Maps : Suivi Caméra Dynamique
+          if (followUser) {
+            map.easeTo({
+              center: [lon, lat],
+              zoom: 18,
+              pitch: 55,
+              bearing: currentHeading,
+              duration: 1000
+            });
+          }
         },
-        (err) => {
-          console.warn("Erreur GPS : " + err.message);
-        },
-        gpsOptions
+        (err) => console.warn(err),
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
       );
     }
 
-    function getDistanceMeters(lat1, lon1, lat2, lon2) {
-      const R = 6371000;
-      const dLat = (lat2 - lat1) * Math.PI / 180;
-      const dLon = (lon2 - lon1) * Math.PI / 180;
-      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-                Math.sin(dLon/2) * Math.sin(dLon/2);
-      return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
-    }
-
-    function updateGuidance(currentLat, currentLon) {
-      if (targetPoints.length === 0) return;
-
-      if (currentTargetIndex >= targetPoints.length) {
-        document.getElementById('guidance-panel').style.display = 'flex';
-        document.getElementById('guidance-dist').innerText = 'Arrivé !';
-        document.getElementById('guidance-next').innerText = 'Tournée terminée';
-        document.getElementById('guidance-instruction').innerText = '🏁 Tous les points sont validés';
-        document.getElementById('guidance-arrow').innerText = '🏁';
-        routePolyline.setLatLngs([]);
-        return;
-      }
-
-      const nextTarget = targetPoints[currentTargetIndex];
-      const distDirect = getDistanceMeters(currentLat, currentLon, nextTarget.lat, nextTarget.lon);
-
-      if (distDirect <= 25 && currentTargetIndex < targetPoints.length - 1) {
-        currentTargetIndex++;
-        updateGuidance(currentLat, currentLon);
-        return;
-      }
-
-      const now = Date.now();
-      if (now - lastRouteCalcTime > 4000) {
-        lastRouteCalcTime = now;
-        fetchRoadRoute(currentLat, currentLon, nextTarget.lat, nextTarget.lon, nextTarget.name || `Étape ${currentTargetIndex + 1}`);
-      }
-    }
-
-    function fetchRoadRoute(startLat, startLon, endLat, endLon, targetName) {
-      const url = `https://router.project-osrm.org/route/v1/driving/${startLon},${startLat};${endLon},${endLat}?overview=full&geometries=geojson&steps=true`;
-
-      fetch(url)
-        .then(res => res.json())
-        .then(data => {
-          if (!data.routes || data.routes.length === 0) return;
-
-          const route = data.routes[0];
-          const coordinates = route.geometry.coordinates.map(c => [c[1], c[0]]);
-          
-          routePolyline.setLatLngs(coordinates);
-
-          const distanceMeters = Math.round(route.distance);
-          const durationMin = Math.round(route.duration / 60);
-
-          let nextStepText = "Suivez la route";
-          let arrow = "⬆️";
-
-          if (route.legs && route.legs[0].steps && route.legs[0].steps.length > 0) {
-            const step = route.legs[0].steps[0];
-            const type = step.maneuver.type;
-            const modifier = step.maneuver.modifier || "";
-
-            if (modifier.includes("right")) {
-              nextStepText = "Tournez à droite";
-              arrow = "➡️";
-            } else if (modifier.includes("left")) {
-              nextStepText = "Tournez à gauche";
-              arrow = "⬅️";
-            } else if (type === "arrive") {
-              nextStepText = "Vous arrivez au point";
-              arrow = "🎯";
-            } else {
-              nextStepText = "Continuez tout droit";
-              arrow = "⬆️";
-            }
-
-            if (step.name) {
-              nextStepText += ` sur ${step.name}`;
-            }
-          }
-
-          document.getElementById('guidance-panel').style.display = 'flex';
-          document.getElementById('guidance-dist').innerText = distanceMeters > 1000 ? (distanceMeters / 1000).toFixed(1) + ' km' : distanceMeters + ' m';
-          document.getElementById('guidance-next').innerText = `Étape ${currentTargetIndex + 1}/${targetPoints.length} : ${targetName} (${durationMin} min)`;
-          document.getElementById('guidance-instruction').innerText = nextStepText;
-          document.getElementById('guidance-arrow').innerText = arrow;
-        })
-        .catch(err => {
-          console.error("Erreur calcul route:", err);
-        });
-    }
-
-    function addBinStop() {
-      if (!lastKnownPos) {
-        alert("En attente du signal GPS...");
-        return;
-      }
-
-      const binNumber = currentBins.length + 1;
-      const note = prompt(`Ajouter Arrêt N°${binNumber} :`, `Arrêt N°${binNumber}`);
-      if (note === null) return;
-
-      const binPoint = {
-        number: binNumber,
-        name: note || `Arrêt N°${binNumber}`,
-        lat: lastKnownPos.lat,
-        lon: lastKnownPos.lon,
-        time: new Date().toLocaleTimeString()
-      };
-
-      currentBins.push(binPoint);
-      addBinMarkerToMap(binPoint);
-    }
-
-    function addBinMarkerToMap(bin) {
-      const icon = L.divIcon({
-        className: 'bin-icon',
-        html: bin.number,
-        iconSize: [26, 26],
-        iconAnchor: [13, 13]
-      });
-
-      const marker = L.marker([bin.lat, bin.lon], { icon: icon })
-        .addTo(map)
-        .bindPopup(`<b>${bin.name}</b><br>Heure : ${bin.time}`);
-
-      binMarkersOnMap.push(marker);
-    }
-
-    function clearMapMarkers() {
-      binMarkersOnMap.forEach(m => map.removeLayer(m));
-      binMarkersOnMap = [];
-      if (currentPositionMarker) {
-        map.removeLayer(currentPositionMarker);
-        currentPositionMarker = null;
-      }
-      if (arrowDecorator) {
-        map.removeLayer(arrowDecorator);
-        arrowDecorator = null;
-      }
-      routePolyline.setLatLngs([]);
-      document.getElementById('guidance-panel').style.display = 'none';
-    }
-
     function stopTracking() {
-      if (watchId !== null) {
-        navigator.geolocation.clearWatch(watchId);
-        watchId = null;
-      }
-      
+      if (watchId) { navigator.geolocation.clearWatch(watchId); watchId = null; }
       disableBackgroundKeepAlive();
-
       document.getElementById('startBtn').disabled = false;
       document.getElementById('stopBtn').disabled = true;
       document.getElementById('addBinBtn').disabled = true;
       document.getElementById('saveBtn').disabled = currentPath.length === 0;
     }
 
+    function addBinStop() {
+      if (!lastKnownPos) return alert("GPS en attente...");
+      const num = currentBins.length + 1;
+      const note = prompt(`Ajouter Arrêt N°${num} :`, `Arrêt N°${num}`);
+      if (note === null) return;
+
+      const bin = { number: num, name: note, lat: lastKnownPos.lat, lon: lastKnownPos.lon, time: new Date().toLocaleTimeString() };
+      currentBins.push(bin);
+
+      // Création Marker Arrêt
+      const el = document.createElement('div');
+      el.className = 'card';
+      el.style.cssText = 'background:#e37400; color:white; padding:4px 8px; border-radius:12px; font-weight:bold; font-size:12px; border:2px solid white;';
+      el.innerText = num;
+      new maplibregl.Marker({ element: el }).setLngLat([bin.lon, bin.lat]).addTo(map);
+    }
+
     function saveCurrentRun() {
       const name = prompt("Nom de la tournée :", "Tournée du " + new Date().toLocaleDateString());
       if (!name) return;
 
-      const newRun = {
-        id: Date.now(),
-        name: name,
-        date: new Date().toLocaleString(),
-        points: currentPath,
-        bins: currentBins
-      };
-
-      savedRuns.push(newRun);
+      savedRuns.push({ id: Date.now(), name, date: new Date().toLocaleString(), points: currentPath, bins: currentBins });
       localStorage.setItem('my_runs', JSON.stringify(savedRuns));
-      alert("Tournée sauvegardée !");
+      alert("Tournée enregistrée avec succès !");
       document.getElementById('saveBtn').disabled = true;
     }
 
@@ -439,39 +342,13 @@
       }
 
       savedRuns.forEach((run) => {
-        const firstPt = run.points[0] || (run.bins[0] ? { lat: run.bins[0].lat, lon: run.bins[0].lon } : { lat: 0, lon: 0 });
         const card = document.createElement('div');
         card.className = 'card';
-        
-        let binsListHTML = '';
-        if (run.bins && run.bins.length > 0) {
-          binsListHTML = '<ol style="padding-left: 20px; margin: 8px 0; font-size: 0.85rem;">';
-          run.bins.forEach(b => {
-            const wazeUrl = `https://waze.com/ul?ll=${b.lat},${b.lon}&navigate=yes`;
-            const gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${b.lat},${b.lon}`;
-            binsListHTML += `<li><b>${b.name}</b> (${b.time}) - <a href="${wazeUrl}" target="_blank" style="color:#28a745; font-weight:bold;">Waze</a> | <a href="${gmapsUrl}" target="_blank" style="color:#4285F4; font-weight:bold;">Google Maps</a></li>`;
-          });
-          binsListHTML += '</ol>';
-        } else {
-          binsListHTML = '<p><i>Aucun arrêt spécifique enregistré.</i></p>';
-        }
-
-        const startWaze = `https://waze.com/ul?ll=${firstPt.lat},${firstPt.lon}&navigate=yes`;
-        const startGmaps = `https://www.google.com/maps/search/?api=1&query=${firstPt.lat},${firstPt.lon}`;
-
         card.innerHTML = `
           <h3>${run.name}</h3>
-          <p><b>Date:</b> ${run.date} | <b>Arrêts Poubelles:</b> ${run.bins ? run.bins.length : 0}</p>
-          
-          <details>
-            <summary style="cursor:pointer; color:#007bff; font-weight:bold; margin-bottom:10px;">📋 Afficher la liste des arrêts</summary>
-            ${binsListHTML}
-          </details>
-
-          <div class="card-btns" style="margin-top: 10px;">
-            <button class="btn-sm bg-blue" onclick="loadRunOnMap(${run.id})">🗺️ Charger & Suivre</button>
-            <a class="btn-sm bg-green" href="${startWaze}" target="_blank">Waze (Départ)</a>
-            <a class="btn-sm bg-gmaps" href="${startGmaps}" target="_blank">Google Maps (Départ)</a>
+          <p><b>Date:</b> ${run.date} | <b>Arrêts:</b> ${run.bins ? run.bins.length : 0}</p>
+          <div style="display:flex; gap:8px;">
+            <button class="btn-sm bg-blue" onclick="loadRunOnMap(${run.id})">🗺️ Suivre cette tournée</button>
             <button class="btn-sm bg-red" onclick="deleteRun(${run.id})">Supprimer</button>
           </div>
         `;
@@ -484,50 +361,18 @@
       if (!run) return;
 
       switchTab('tab-carte');
-      clearMapMarkers();
-      livePolyline.setLatLngs([]);
 
-      const pts = run.points.map(p => [p.lat, p.lon]);
-      refPolyline.setLatLngs(pts);
-
-      if (pts.length > 1) {
-        arrowDecorator = L.polylineDecorator(refPolyline, {
-          patterns: [
-            {
-              offset: 30,
-              repeat: 80,
-              symbol: L.Symbol.arrowHead({
-                pixelSize: 12,
-                headAngle: 50,
-                polygon: true,
-                pathOptions: { 
-                  stroke: true, 
-                  color: '#002699', 
-                  fillColor: '#0055ff', 
-                  fillOpacity: 1,
-                  weight: 1.5 
-                }
-              })
-            }
-          ]
-        }).addTo(map);
+      if (map.getSource('ref-path')) {
+        map.getSource('ref-path').setData({
+          'type': 'Feature',
+          'geometry': { 'type': 'LineString', 'coordinates': run.points }
+        });
       }
 
-      currentTargetIndex = 0;
-
-      if (run.bins && run.bins.length > 0) {
-        run.bins.forEach(bin => addBinMarkerToMap(bin));
-        targetPoints = run.bins;
-      } else {
-        targetPoints = run.points;
+      if (run.points.length > 0) {
+        map.flyTo({ center: run.points[0], zoom: 16 });
       }
-
-      if (pts.length > 0) {
-        map.fitBounds(refPolyline.getBounds());
-      }
-
-      currentBins = [...(run.bins || [])];
-      alert(`Tournée "${run.name}" chargée.`);
+      alert(`Tournée "${run.name}" chargée sur la carte.`);
     }
 
     function deleteRun(id) {
